@@ -40,7 +40,7 @@ def init_vector_table():
                     filename text,
                     chunk_index int,
                     content text,
-                    embedding vector(768),
+                    embedding vector(1536),
                     source_type text DEFAULT 'text'
                 );
             """)
@@ -285,11 +285,4 @@ def vector_store_info() -> dict:
                 SELECT source_type, COUNT(*) FROM document_chunks
                 GROUP BY source_type ORDER BY source_type
             """)
-            by_type = {row[0]: row[1] for row in cur.fetchall()}
-    return {
-        "total_chunks": total_chunks,
-        "total_documents": total_docs,
-        "embed_model": EMBED_MODEL,
-        "embedding_dim": 768,
-        "by_source_type": by_type,
-    }
+            by_type = {row[0]:
