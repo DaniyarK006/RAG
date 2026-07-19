@@ -18,6 +18,7 @@ from adaptive import adaptive_rag, AdaptiveRAG, init_adaptive_tables
 from rbac import rbac, init_rbac_tables
 from connectors import connector, start_connector_scheduler
 
+app = FastAPI()
 # Logging 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -66,18 +67,18 @@ async def lifespan(app: FastAPI):
     try:
         init_adaptive_tables()
     except Exception as e:
-        logger.warning(f"⚠️ init_adaptive_tables: {e}")
+        logger.warning(f" init_adaptive_tables: {e}")
     try:
         init_rbac_tables()
-        logger.info("✔ RBAC tables initialized")
+        logger.info(" RBAC tables initialized")
     except Exception as e:
-        logger.warning(f"⚠️ init_rbac_tables: {e}")
+        logger.warning(f" init_rbac_tables: {e}")
     # Start connector scheduler in background
     try:
         start_connector_scheduler()
-        logger.info("✔ Connector scheduler started")
+        logger.info(" Connector scheduler started")
     except Exception as e:
-        logger.warning(f"⚠️ Connector scheduler: {e}")
+        logger.warning(f" Connector scheduler: {e}")
     yield
 
 app = FastAPI(title="DocRAG", lifespan=lifespan)
@@ -95,7 +96,7 @@ app.add_middleware(
 )
 
 
-# Auth 
+# Auth
 
 @app.post("/auth/register", response_model=TokenResponse)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
@@ -115,8 +116,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     if not user or not verify_password(body.password, user.hashed_password or ""):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials")
     
-    # Do NOT auto-assign orphaned files - each account keeps its own files
-    # Orphaned files (user_id=0) are hidden from all accounts
+    # Do NOT auto-assign orphaned files [Orphaned files (user_id=0) are hidden from all accounts]
     
     return TokenResponse(access_token=create_token({"sub": str(user.id), "username": user.username}))
 
