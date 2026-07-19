@@ -1,0 +1,23 @@
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.9
+httpx==0.27.0
+asyncpg==0.30.0
+sqlalchemy[asyncio]>=2.0.36
+python-dotenv==1.0.1
+psycopg2-binary>=2.9.9
+
+numpy>=1.26.0
+pypdf>=4.0.0
+python-docx>=1.1.0
+openpyxl>=3.1.2
+
+pinecone-client>=5.0.1
+
+# RBAC {Connectors}
+schedule>=1.2.0
+google-api-python-client>=2.0.0
+google-auth-httplib2>=0.2.0
+google-auth-oauthlib>=1.0.0

@@ -1,0 +1,10 @@
+import sys; sys.path.insert(0, 'backend')
+from rag import init_vector_table, get_conn
+init_vector_table()
+conn = get_conn()
+cur = conn.cursor()
+cur.execute("SELECT column_name, udt_name, character_maximum_length FROM information_schema.columns WHERE table_name='document_chunks' AND column_name='embedding'")
+r = cur.fetchone()
+print(f"column: {r[0]}, type: {r[1]}, dim: {r[2]}")
+cur.close()
+conn.close()
