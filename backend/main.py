@@ -18,31 +18,27 @@ from adaptive import adaptive_rag, AdaptiveRAG, init_adaptive_tables
 from rbac import rbac, init_rbac_tables
 from connectors import connector, start_connector_scheduler
 
-app = FastAPI()
-# Logging 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 try:
     from adaptive import adaptive_rag
-    logger.info("✔ adaptive imported")
+    logger.info("adaptive imported")
 except Exception as e:
-    logger.error(f"✖ adaptive import error: {e}")
+    logger.error(f"adaptive import error: {e}")
     adaptive_rag = None
 
 try:
     from rag import pipeline
-    logger.info("✔ rag imported")
+    logger.info("rag imported")
 except Exception as e:
-    logger.error(f"✖ rag import error: {e}")
+    logger.error(f"rag import error: {e}")
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
-print(f"DEBUG: secret_prefix={GOOGLE_CLIENT_SECRET[:10] if GOOGLE_CLIENT_SECRET else None} secret_len={len(GOOGLE_CLIENT_SECRET) if GOOGLE_CLIENT_SECRET else 0}")
 GOOGLE_REDIRECT_URI  = os.getenv("GOOGLE_REDIRECT_URI",   "http://localhost:8000/auth/google/callback")
-print(f"DEBUG redirect_uri={GOOGLE_REDIRECT_URI}")
 GITHUB_CLIENT_ID     = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 GITHUB_REDIRECT_URI  = os.getenv("GITHUB_REDIRECT_URI",   "http://localhost:8000/auth/github/callback")
@@ -67,18 +63,17 @@ async def lifespan(app: FastAPI):
     try:
         init_adaptive_tables()
     except Exception as e:
-        logger.warning(f" init_adaptive_tables: {e}")
+        logger.warning(f"init_adaptive_tables: {e}")
     try:
         init_rbac_tables()
-        logger.info(" RBAC tables initialized")
+        logger.info("RBAC tables initialized")
     except Exception as e:
-        logger.warning(f" init_rbac_tables: {e}")
-    # Start connector scheduler in background
+        logger.warning(f"init_rbac_tables: {e}")
     try:
         start_connector_scheduler()
-        logger.info(" Connector scheduler started")
+        logger.info("Connector scheduler started")
     except Exception as e:
-        logger.warning(f" Connector scheduler: {e}")
+        logger.warning(f"Connector scheduler: {e}")
     yield
 
 app = FastAPI(title="DocRAG", lifespan=lifespan)
@@ -95,8 +90,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# Auth
 
 @app.post("/auth/register", response_model=TokenResponse)
 async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
@@ -115,9 +108,6 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     user = await db.scalar(select(User).where(User.username == body.username))
     if not user or not verify_password(body.password, user.hashed_password or ""):
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid credentials")
-    
-    # Do NOT auto-assign orphaned files [Orphaned files (user_id=0) are hidden from all accounts]
-    
     return TokenResponse(access_token=create_token({"sub": str(user.id), "username": user.username}))
 
 
@@ -275,21 +265,15 @@ async def me(token: str, db: AsyncSession = Depends(get_db)):
     return user
 
 
-# Documents
-
 async def _process_document(file: UploadFile, user_id: int):
-    """Background task: generate embeddings for first N chunks only for fast vector search."""
     try:
         content = await file.read()
         if not content:
             return
-        # Only embed first 20 chunks for quick vector search availability
-        # Rest of chunks remain keyword-searchable
         chunks = pipeline.prepare(file.filename, content)
         chunks_to_embed = chunks[:20]
         if chunks_to_embed:
             embeddings = await pipeline.embed(chunks_to_embed)
-            # Update only the first N chunks with embeddings
             init_vector_table()
             with get_conn() as conn:
                 with conn.cursor() as cur:
@@ -307,7 +291,6 @@ async def _process_document(file: UploadFile, user_id: int):
 
 @app.post("/documents/upload")
 async def upload_document(file: UploadFile = File(...), token: str = "", background_tasks: BackgroundTasks = BackgroundTasks()):
-    # Get user_id from JWT token
     user_id = 0
     if token:
         try:
@@ -317,15 +300,14 @@ async def upload_document(file: UploadFile = File(...), token: str = "", backgro
         except Exception as e:
             logger.warning(f"Invalid token: {e}")
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
-    
+
     if not file.filename:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File name is required")
-    
+
     content = await file.read()
     if not content:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File is empty")
-    
-    # For images, process synchronously (fast)
+
     if is_image(file.filename):
         try:
             result = await ingest_image(file.filename, content)
@@ -333,22 +315,19 @@ async def upload_document(file: UploadFile = File(...), token: str = "", backgro
         except Exception as e:
             logger.error(f"Image ingestion error for {file.filename}: {e}\n{traceback.format_exc()}")
             raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Image processing error: {str(e)}")
-    
-    # For text/docs: store immediately without embeddings, then generate embeddings in background
+
     ext = file.filename.rsplit(".", 1)[-1].lower()
     source_type = ext if ext in ("pdf", "docx", "txt") else "text"
-    
+
     try:
-        # Extract and store chunks immediately (no embeddings)
         chunks = pipeline.prepare(file.filename, content)
         chunk_count = await pipeline.store_fast(file.filename, chunks, user_id, source_type)
-        
-        # Generate embeddings in background to update the chunks later
+
         from io import BytesIO
         from fastapi import UploadFile as FastAPIFile
         bg_file = FastAPIFile(filename=file.filename, file=BytesIO(content))
         background_tasks.add_task(_process_document, bg_file, user_id)
-        
+
         return {
             "filename": file.filename,
             "chunks": chunk_count,
@@ -415,8 +394,6 @@ async def delete_document(filename: str):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Document not found")
     return {"filename": filename, "deleted_chunks": deleted}
 
-
-# Chat & Search 
 
 @app.get("/documents/ask")
 async def ask(q: str, top_k: int = 5, token: str = ""):
@@ -556,8 +533,6 @@ async def websocket_chat(websocket: WebSocket):
         pass
 
 
-# Search 
-
 @app.get("/documents/search")
 async def search(q: str, top_k: int = 5, mode: str = "advanced", token: str = ""):
     if not q.strip():
@@ -585,7 +560,7 @@ async def numeric_search(body: dict, token: str = ""):
     threshold = float(body.get("threshold", 0.5))
     if not numbers:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "numbers array is required")
-    
+
     user_id = 0
     if token:
         try:
@@ -633,8 +608,6 @@ async def numeric_search(body: dict, token: str = ""):
     return {"query_numbers": numbers, "threshold": threshold, "results": results, "total": len(results)}
 
 
-# Health 
-
 @app.get("/health")
 async def health():
     return {"status": "ok"}
@@ -642,7 +615,6 @@ async def health():
 
 @app.get("/health/ollama")
 async def health_ollama():
-    """Проверяет доступность Ollama и наличие модели эмбеддингов."""
     ok, msg = await check_ollama_health()
     return {"ok": ok, "message": msg}
 
@@ -672,8 +644,6 @@ async def health_dashboard():
                                 "embedding_dim", "by_source_type")},
     }
 
-
-# Index 
 
 @app.get("/index/query")
 async def index_query(q: str, index: str = "vector", top_k: int = 5, token: str = ""):
@@ -750,11 +720,10 @@ async def index_compare(q: str, top_k: int = 3, token: str = ""):
 
 @app.get("/adaptive/ask")
 async def adaptive_ask(q: str, index: str = "auto", token: str = ""):
-    """Адаптивный поиск с автоматическим выбором индекса + fallback"""
     try:
         if not q.strip():
             raise HTTPException(status.HTTP_400_BAD_REQUEST, "Query cannot be empty")
-        
+
         user_id = 0
         if token:
             try:
@@ -762,17 +731,14 @@ async def adaptive_ask(q: str, index: str = "auto", token: str = ""):
                 user_id = int(payload["sub"])
             except Exception:
                 pass
-        
-        # Detect comparison/counting queries
+
         q_lower = q.lower()
         is_count_query = any(kw in q_lower for kw in ["сколько", "количество", "число", "count", "how many"])
         is_compare_query = any(kw in q_lower for kw in ["одинаков", "схож", "похож", "сравн", "same", "similar", "compare"])
-        
+
         if is_count_query or is_compare_query:
             return await handle_comparison_query(q, is_count_query, is_compare_query, user_id)
-        
 
-        # Fallback: использую generate_answer
         result = await generate_answer(q, top_k=5, user_id=user_id)
         return {
             "query": q,
@@ -784,19 +750,17 @@ async def adaptive_ask(q: str, index: str = "auto", token: str = ""):
             "temperature": 0.1,
             "latency_ms": 0
         }
-        
+
     except Exception as e:
         logger.error(f"adaptive_ask error: {e}")
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
 
 
 async def handle_comparison_query(q: str, is_count_query: bool, is_compare_query: bool, user_id: int = 0) -> dict:
-    """Обработка запросов на сравнение/подсчет файлов"""
     import time
     t0 = time.perf_counter()
-    
+
     try:
-        # Get all unique files for this user only
         with get_conn() as conn:
             with conn.cursor() as cur:
                 if user_id > 0:
@@ -811,7 +775,7 @@ async def handle_comparison_query(q: str, is_count_query: bool, is_compare_query
                         WHERE 1 = 0
                     """)
                 files = [r[0] for r in cur.fetchall()]
-        
+
         if not files:
             return {
                 "query": q,
@@ -838,7 +802,7 @@ async def handle_comparison_query(q: str, is_count_query: bool, is_compare_query
                 "temperature": 0.1,
                 "latency_ms": 0
             }
-        
+
         with get_conn() as conn:
             with conn.cursor() as cur:
                 if user_id > 0:
@@ -856,7 +820,7 @@ async def handle_comparison_query(q: str, is_count_query: bool, is_compare_query
                         ORDER BY filename, chunk_index
                     """)
                 rows = cur.fetchall()
-        
+
         if not rows:
             return {
                 "query": q,
@@ -868,7 +832,7 @@ async def handle_comparison_query(q: str, is_count_query: bool, is_compare_query
                 "temperature": 0.1,
                 "latency_ms": 0
             }
-        
+
         try:
             import numpy as np
         except ImportError:
@@ -883,30 +847,28 @@ async def handle_comparison_query(q: str, is_count_query: bool, is_compare_query
                 "temperature": 0.1,
                 "latency_ms": 0
             }
-        
+
         file_scores = []
         for row in rows:
             filename, content, embedding_str = row
             try:
                 if not embedding_str or not content:
                     continue
-                
-                # Parse embedding - handle multiple formats
+
                 emb_str = str(embedding_str).strip()
                 if emb_str.startswith('[') and emb_str.endswith(']'):
                     emb = [float(x.strip()) for x in emb_str[1:-1].split(',') if x.strip()]
                 else:
                     emb = [float(x.strip()) for x in emb_str.split(',') if x.strip()]
-                
+
                 if len(emb) != len(query_emb):
                     logger.warning(f"Embedding dimension mismatch for {filename}: {len(emb)} vs {len(query_emb)}")
                     continue
-                
-                # Compute cosine similarity
+
                 emb_arr = np.array(emb, dtype=np.float64)
                 query_arr = np.array(query_emb, dtype=np.float64)
                 sim = float(np.dot(query_arr, emb_arr) / (np.linalg.norm(query_arr) * np.linalg.norm(emb_arr) + 1e-10))
-                
+
                 file_scores.append({
                     "filename": filename,
                     "similarity": round(sim, 4),
@@ -915,16 +877,14 @@ async def handle_comparison_query(q: str, is_count_query: bool, is_compare_query
             except Exception as e:
                 logger.warning(f"Error processing embedding for {filename}: {e}")
                 continue
-        
-        # Sort by similarity
+
         file_scores.sort(key=lambda x: x["similarity"], reverse=True)
-        
-        # Filter by threshold
+
         threshold = 0.2
         matching = [f for f in file_scores if f["similarity"] >= threshold]
-        
+
         latency = round((time.perf_counter() - t0) * 1000)
-        
+
         if is_count_query:
             answer = f"Найдено {len(matching)} файлов, соответствующих запросу.\n\n"
             if matching:
@@ -941,7 +901,7 @@ async def handle_comparison_query(q: str, is_count_query: bool, is_compare_query
                 answer += "Наиболее похожие документы:\n"
                 for i, f in enumerate(matching[:5], 1):
                     answer += f"{i}. {f['filename']} ({f['similarity']:.2%})\n"
-        
+
         sources = [
             {
                 "filename": f["filename"],
@@ -950,7 +910,7 @@ async def handle_comparison_query(q: str, is_count_query: bool, is_compare_query
             }
             for f in matching[:20]
         ]
-        
+
         return {
             "query": q,
             "answer": answer,
@@ -961,7 +921,7 @@ async def handle_comparison_query(q: str, is_count_query: bool, is_compare_query
             "temperature": 0.1,
             "latency_ms": latency
         }
-    
+
     except Exception as e:
         logger.error(f"handle_comparison_query error: {e}\n{traceback.format_exc()}")
         return {
@@ -981,8 +941,6 @@ async def adaptive_best_index():
         return {"best_index": adaptive_rag.evaluator.best_index()}
     return {"best_index": "vector"}
 
-
-# Multimodal 
 
 @app.get("/multimodal/ask")
 async def multimodal_ask(q: str, top_k: int = 5):
@@ -1004,8 +962,6 @@ async def multimodal_summarize(q: str, top_k: int = 6):
     summary = await summarize_multimodal(chunks)
     return {"query": q, "summary": summary, "sources_used": len(chunks)}
 
-
-# Feedback 
 
 @app.post("/documents/feedback")
 async def submit_feedback(body: FeedbackRequest, db: AsyncSession = Depends(get_db)):
@@ -1031,11 +987,8 @@ async def get_feedback(db: AsyncSession = Depends(get_db)):
     }
 
 
-# RBAC (Role-Based Access Control) API
-
 @app.post("/api/users/create")
 async def create_user(email: str, password: str, role: str = "employee", department: str = "general"):
-    """Create a new RBAC user."""
     from auth import hash_password
     user_id = rbac.create_user(email, hash_password(password), role, department)
     return {"user_id": user_id, "email": email, "role": role, "department": department}
@@ -1045,14 +998,12 @@ async def create_user(email: str, password: str, role: str = "employee", departm
 async def set_permissions(document_id: str, allowed_roles: list[str] = None,
                          allowed_departments: list[str] = None,
                          confidentiality: str = "internal"):
-    """Admin sets document access permissions."""
     rbac.set_document_permissions(document_id, allowed_roles, allowed_departments, confidentiality)
     return {"status": "ok", "document": document_id}
 
 
 @app.get("/api/documents/view/{filename}")
 async def view_document(filename: str, chunk_index: int = 0, user_id: int = 0):
-    """Get a specific chunk content for preview with RBAC check."""
     if not rbac.check_access(user_id, filename):
         raise HTTPException(status_code=403, detail="Доступ запрещён")
     rbac.log_access(user_id, filename, action='view')
@@ -1075,18 +1026,15 @@ async def view_document(filename: str, chunk_index: int = 0, user_id: int = 0):
 
 @app.get("/api/documents/download/{filename}")
 async def download_document(filename: str, user_id: int = 0):
-    """Download a full document with RBAC check."""
     if not rbac.check_access(user_id, filename):
         raise HTTPException(status_code=403, detail="Доступ запрещён")
     rbac.log_access(user_id, filename, action='download')
     from fastapi.responses import FileResponse
     import os as os_module
-    # Try to find the file in the uploads directory
     upload_dir = os_module.path.join(os_module.path.dirname(__file__), "..", "uploads")
     file_path = os_module.path.join(upload_dir, filename)
     if os_module.path.exists(file_path):
         return FileResponse(file_path)
-    # If not found, return the chunk content as text
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
@@ -1101,44 +1049,36 @@ async def download_document(filename: str, user_id: int = 0):
 
 @app.get("/api/rbac/users")
 async def get_rbac_users():
-    """Get all RBAC users."""
     return {"users": rbac.get_all_users()}
 
 
 @app.get("/api/rbac/documents")
 async def get_rbac_documents():
-    """Get all documents with their permission settings."""
     return {"documents": rbac.get_all_documents_with_permissions()}
 
 
 @app.get("/api/rbac/access-log")
 async def get_access_log(limit: int = 50):
-    """Get access audit log."""
     return {"entries": rbac.get_access_log(limit)}
 
 
 @app.get("/api/rbac/check-access")
 async def check_access(user_id: int, document_id: str):
-    """Check if a user has access to a document."""
     return {"has_access": rbac.check_access(user_id, document_id)}
 
 
-# Debug
-
 @app.get("/debug/adaptive")
 async def debug_adaptive():
-    """Отладочный эндпоинт"""
     return {
         "adaptive_rag_exists": adaptive_rag is not None,
         "adaptive_rag_type": str(type(adaptive_rag)) if adaptive_rag else None,
         "llm_model": LLM_MODEL,
         "ollama_url": OLLAMA_URL
     }
-    
-    
+
+
 @app.get("/graph/similarities")
 async def graph_similarities(token: str = ""):
-    """Вычисляет cosine similarity между всеми документами для графа."""
     user_id = 0
     if token:
         try:
@@ -1146,7 +1086,7 @@ async def graph_similarities(token: str = ""):
             user_id = int(payload["sub"])
         except Exception:
             pass
-    
+
     from rag import get_conn, get_embedding, cosine_similarity
     import asyncio
 
@@ -1163,7 +1103,6 @@ async def graph_similarities(token: str = ""):
                     ) r WHERE rn <= 2
                 """, (user_id,))
             else:
-                # No valid auth - return empty (orphaned files hidden)
                 cur.execute("""
                     SELECT filename, content FROM (
                         SELECT filename, content,
