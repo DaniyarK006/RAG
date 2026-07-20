@@ -2,7 +2,8 @@
   "services": {
     "frontend": {
       "root": "frontend",
-      "framework": "vite"
+      "framework": "vite",
+      "installCommand": "npm install --legacy-peer-deps"
     },
     "backend": {
       "root": "backend",
