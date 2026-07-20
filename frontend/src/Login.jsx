@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 
-const API = 'http://localhost:8000'
+const API = ''
 
 const GoogleIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -23,10 +23,8 @@ const FacebookIcon = () => (
   </svg>
 )
 
-// All URLs go directly to the provider — no backend needed for initial redirect.
-// After authorization, provider redirects to backend callback for token exchange.
 
-const CB = 'http://localhost:8000/auth'
+const CB = '/auth'
 
 const GOOGLE_URL =
   'https://accounts.google.com/o/oauth2/v2/auth?' +
@@ -174,7 +172,7 @@ export default function Login({ onLogin }) {
   // Listen for OAuth token from popup
   React.useEffect(() => {
     const handler = (e) => {
-      if (e.origin !== 'http://localhost:8000') return
+      if (e.origin !== window.location.origin) return
       if (e.data && e.data.token) {
         setLoading(null)
         try {

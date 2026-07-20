@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 
-const API = 'http://localhost:8000'
+const API = ''
 
 const getToken = () => {
   try { return localStorage.getItem('authToken') || sessionStorage.getItem('authToken') || '' } catch { return '' }

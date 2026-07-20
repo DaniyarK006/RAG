@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react'
 
-const API = 'http://localhost:8000'
+const API = ''
 const MAX_DOCS = 100
 
 const TYPE_COLORS = {

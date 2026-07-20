@@ -9,7 +9,7 @@ import folderIcon from './assets/azure_windows_blue_folder_folder_icon_250618.pn
 import chatIcon from './assets/chat-31_icon-icons.com_65948.png'
 import docsIcon from './assets/search_page_document_16683.png'
 
-const API = 'http://localhost:8000'
+const API = ''
 
 const INDEX_TYPES = [
   { id: 'auto',    label: 'Авто',     icon: folderIcon },

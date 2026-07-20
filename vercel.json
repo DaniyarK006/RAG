@@ -2,8 +2,7 @@
   "services": {
     "frontend": {
       "root": "frontend",
-      "framework": "vite",
-      "installCommand": "npm install --legacy-peer-deps"
+      "framework": "vite"
     },
     "backend": {
       "root": "backend",
@@ -11,19 +10,16 @@
     }
   },
   "rewrites": [
-    {
-      "source": "/api(/.*)?",
-      "destination": {
-        "type": "service",
-        "service": "backend"
-      }
-    },
-    {
-      "source": "/(.*)",
-      "destination": {
-        "type": "service",
-        "service": "frontend"
-      }
-    }
+    { "source": "/auth(/.*)?", "destination": { "type": "service", "service": "backend" } },
+    { "source": "/documents(/.*)?", "destination": { "type": "service", "service": "backend" } },
+    { "source": "/api(/.*)?", "destination": { "type": "service", "service": "backend" } },
+    { "source": "/health(/.*)?", "destination": { "type": "service", "service": "backend" } },
+    { "source": "/index(/.*)?", "destination": { "type": "service", "service": "backend" } },
+    { "source": "/adaptive(/.*)?", "destination": { "type": "service", "service": "backend" } },
+    { "source": "/multimodal(/.*)?", "destination": { "type": "service", "service": "backend" } },
+    { "source": "/debug(/.*)?", "destination": { "type": "service", "service": "backend" } },
+    { "source": "/graph(/.*)?", "destination": { "type": "service", "service": "backend" } },
+    { "source": "/ws(/.*)?", "destination": { "type": "service", "service": "backend" } },
+    { "source": "/(.*)", "destination": { "type": "service", "service": "frontend" } }
   ]
 }
