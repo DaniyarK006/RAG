@@ -24,7 +24,7 @@ const FacebookIcon = () => (
 )
 
 
-const CB = '/auth'
+const CB = window.location.origin + '/auth'
 
 const GOOGLE_URL =
   'https://accounts.google.com/o/oauth2/v2/auth?' +
