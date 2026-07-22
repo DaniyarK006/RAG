@@ -148,6 +148,8 @@ async def google_callback(code: str, db: AsyncSession = Depends(get_db)):
 
         if not user and info.get("email"):
             user = await db.scalar(select(User).where(User.email == info["email"]))
+            if not user:
+                user = await db.scalar(select(User).where(User.username == info["email"]))
 
         if user and not user.oauth_id:
             user.oauth_id = info["id"]
@@ -212,6 +214,17 @@ async def github_callback(code: str, db: AsyncSession = Depends(get_db)):
                     email = primary.get("email")
 
         user = await db.scalar(select(User).where(User.oauth_id == str(info["id"])))
+
+        if not user and email:
+            user = await db.scalar(select(User).where(User.email == email))
+            if not user:
+                user = await db.scalar(select(User).where(User.username == email))
+
+        if user and not user.oauth_id:
+            user.oauth_id = str(info["id"])
+            user.oauth_provider = "github"
+            await db.commit()
+
         if not user:
             user = User(username=email or info.get("login") or str(info["id"]),
                         email=email, oauth_provider="github", oauth_id=str(info["id"]))
@@ -253,10 +266,23 @@ async def facebook_callback(code: str, db: AsyncSession = Depends(get_db)):
         info = user_res.json()
 
         fb_id = str(info["id"])
+        email = info.get("email")
+
         user = await db.scalar(select(User).where(User.oauth_id == fb_id))
+
+        if not user and email:
+            user = await db.scalar(select(User).where(User.email == email))
+            if not user:
+                user = await db.scalar(select(User).where(User.username == email))
+
+        if user and not user.oauth_id:
+            user.oauth_id = fb_id
+            user.oauth_provider = "facebook"
+            await db.commit()
+
         if not user:
-            user = User(username=info.get("email") or info.get("name") or fb_id,
-                        email=info.get("email"), oauth_provider="facebook", oauth_id=fb_id)
+            user = User(username=email or info.get("name") or fb_id,
+                        email=email, oauth_provider="facebook", oauth_id=fb_id)
             db.add(user)
             await db.commit()
             await db.refresh(user)
