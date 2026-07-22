@@ -46,6 +46,7 @@ FACEBOOK_CLIENT_ID   = os.getenv("FACEBOOK_CLIENT_ID")
 FACEBOOK_CLIENT_SECRET = os.getenv("FACEBOOK_CLIENT_SECRET")
 FACEBOOK_REDIRECT_URI  = os.getenv("FACEBOOK_REDIRECT_URI", "http://localhost:8000/auth/facebook/callback")
 FRONTEND_URL         = os.getenv("FRONTEND_URL", "http://localhost:5173")
+BLOB_READ_WRITE_TOKEN = os.getenv("BLOB_READ_WRITE_TOKEN")
 
 from oauth_utils import oauth_login_token_redirect
 
@@ -375,6 +376,93 @@ async def upload_document(file: UploadFile = File(...), token: str = "", backgro
         }
     except Exception as e:
         logger.error(f"Upload error for {file.filename}: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
+
+
+@app.post("/documents/blob-upload")
+async def blob_upload_handler(request: Request):
+    if not BLOB_READ_WRITE_TOKEN:
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "BLOB_READ_WRITE_TOKEN is not configured")
+
+    body = await request.json()
+    payload_type = body.get("type")
+
+    if payload_type == "blob.generate-client-token":
+        client_payload = body.get("payload", {})
+        pathname = client_payload.get("pathname", "upload")
+
+        async with httpx.AsyncClient() as client:
+            resp = await client.post(
+                "https://blob.vercel-storage.com/handle-upload",
+                headers={
+                    "Authorization": f"Bearer {BLOB_READ_WRITE_TOKEN}",
+                    "Content-Type": "application/json",
+                },
+                json=body,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    if payload_type == "blob.upload-completed":
+        return {"status": "ok"}
+
+    raise HTTPException(status.HTTP_400_BAD_REQUEST, "Unsupported blob event type")
+
+
+@app.post("/documents/process-uploaded")
+async def process_uploaded(body: dict, background_tasks: BackgroundTasks):
+    filename = body.get("filename")
+    blob_url = body.get("blob_url")
+    token = body.get("token", "")
+
+    if not filename or not blob_url:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "filename and blob_url are required")
+
+    user_id = 0
+    if token:
+        try:
+            payload = decode_token(token)
+            user_id = int(payload["sub"])
+        except Exception:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
+
+    async with httpx.AsyncClient(timeout=60) as client:
+        resp = await client.get(blob_url)
+        resp.raise_for_status()
+        content = resp.content
+
+    if not content:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Downloaded file is empty")
+
+    if is_image(filename):
+        try:
+            result = await ingest_image(filename, content)
+            return {"filename": result["filename"], "chunks": result["chunks"], "source_type": "image", "status": "done"}
+        except Exception as e:
+            logger.error(f"Image ingestion error for {filename}: {e}\n{traceback.format_exc()}")
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Image processing error: {str(e)}")
+
+    ext = filename.rsplit(".", 1)[-1].lower()
+    source_type = ext if ext in ("pdf", "docx", "txt") else "text"
+
+    try:
+        chunks = pipeline.prepare(filename, content)
+        chunk_count = await pipeline.store_fast(filename, chunks, user_id, source_type)
+
+        from io import BytesIO
+        from fastapi import UploadFile as FastAPIFile
+        bg_file = FastAPIFile(filename=filename, file=BytesIO(content))
+        background_tasks.add_task(_process_document, bg_file, user_id)
+
+        return {
+            "filename": filename,
+            "chunks": chunk_count,
+            "source_type": source_type,
+            "status": "done",
+            "message": "File indexed and ready to use"
+        }
+    except Exception as e:
+        logger.error(f"Process uploaded error for {filename}: {e}\n{traceback.format_exc()}")
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
 
 
