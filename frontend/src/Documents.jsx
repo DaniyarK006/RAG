@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { upload } from '@vercel/blob/client'
 
 const API = ''
 const MAX_DOCS = 100
@@ -189,7 +190,6 @@ const PANELS = {
   model:  { label: 'Модель',     color: '#60a5fa', accent: '#60a5fa', hint: '→ Параметры' },
 }
 
-// ── Live-визуализация процесса индексации ──────────────────────────────
 const STAGES = [
   { key: 'read',  label: 'Чтение файла' },
   { key: 'split', label: 'Разбивка на чанки' },
@@ -377,7 +377,6 @@ function IndexingModal({ open, onClose, target }) {
     </div>
   )
 }
-// ─────────────────────────────────────────────────────────────────────
 
 const LAST_OP_KEY = 'kb_last_indexing_op'
 
@@ -409,8 +408,6 @@ export default function Documents() {
     return () => pollTimers.current.forEach(clearInterval)
   }, [])
 
-  // источник правды — реальный список документов в базе.
-  // если файл из lastOp больше не в базе (удалён / так и не появился) — сбрасываем.
   useEffect(() => {
     if (!lastOp || indexed.length === 0) return
     const stillInBase = indexed.some(d => d.name === lastOp.name)
@@ -452,14 +449,26 @@ export default function Documents() {
       setVizTarget({ name: file.name, type, chunks: null, status: 'uploading' })
 
       try {
-        const buffer = await file.arrayBuffer()
-        if (buffer.byteLength === 0) throw new Error('Файл пустой (0 байт)')
+        if (file.size === 0) throw new Error('Файл пустой (0 байт)')
 
-        const blob = new Blob([buffer], { type: file.type || 'application/octet-stream' })
-        const form = new FormData()
-        form.append('file', blob, file.name)
+        const token = getToken()
 
-        const res = await authFetch('/documents/upload', { method: 'POST', body: form })
+        const blob = await upload(file.name, file, {
+          access: 'public',
+          handleUploadUrl: `${API}/documents/blob-upload`,
+        })
+
+        const res = await fetch(`${API}/documents/process-uploaded`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename: file.name, blob_url: blob.url, token }),
+        })
+
+        if (res.status === 401) {
+          redirectToLogin()
+          throw new Error('Сессия истекла, нужно войти снова')
+        }
+
         if (!res.ok) {
           const err = await res.json().catch(() => ({}))
           throw new Error(err.detail || `Ошибка ${res.status}`)
