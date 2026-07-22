@@ -50,7 +50,7 @@ FRONTEND_URL         = os.getenv("FRONTEND_URL", "http://localhost:5173")
 from oauth_utils import oauth_login_token_redirect
 
 POPUP_CLOSE_HTML = """<!DOCTYPE html><html><body><script>
-window.opener.postMessage({ token: "TOKEN_PLACEHOLDER" }, "http://localhost:5173");
+window.opener.postMessage({ token: "TOKEN_PLACEHOLDER" }, "*");
 window.close();
 </script></body></html>"""
 
@@ -134,7 +134,8 @@ async def google_callback(code: str, db: AsyncSession = Depends(get_db)):
         )
         if token_res.status_code != 200:
             logger.error(f"GOOGLE TOKEN ERROR: {token_res.text}")
-            token_res.raise_for_status()
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Google OAuth error: {token_res.text}")
+
         google_token = token_res.json()["access_token"]
         user_res = await client.get(
             "https://www.googleapis.com/oauth2/v2/userinfo",
@@ -142,6 +143,7 @@ async def google_callback(code: str, db: AsyncSession = Depends(get_db)):
         )
         user_res.raise_for_status()
         info = user_res.json()
+
         user = await db.scalar(select(User).where(User.oauth_id == info["id"]))
 
         if not user and info.get("email"):
@@ -157,11 +159,11 @@ async def google_callback(code: str, db: AsyncSession = Depends(get_db)):
                 username=info.get("email", info["id"]),
                 email=info.get("email"),
                 oauth_provider="google",
-            oauth_id=info["id"]
-        )
-    db.add(user)
-    await db.commit()
-    await db.refresh(user)
+                oauth_id=info["id"]
+            )
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
 
     token = create_token({"sub": str(user.id), "username": user.username})
     return HTMLResponse(POPUP_CLOSE_HTML.replace("TOKEN_PLACEHOLDER", token))
@@ -186,7 +188,12 @@ async def github_callback(code: str, db: AsyncSession = Depends(get_db)):
             headers={"Accept": "application/json"},
         )
         token_res.raise_for_status()
-        access_token = token_res.json()["access_token"]
+        token_json = token_res.json()
+        if "access_token" not in token_json:
+            logger.error(f"GITHUB TOKEN ERROR: {token_json}")
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"GitHub OAuth error: {token_json}")
+
+        access_token = token_json["access_token"]
         user_res = await client.get(
             "https://api.github.com/user",
             headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
@@ -204,13 +211,13 @@ async def github_callback(code: str, db: AsyncSession = Depends(get_db)):
                 if primary:
                     email = primary.get("email")
 
-    user = await db.scalar(select(User).where(User.oauth_id == str(info["id"])))
-    if not user:
-        user = User(username=email or info.get("login") or str(info["id"]),
-                    email=email, oauth_provider="github", oauth_id=str(info["id"]))
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
+        user = await db.scalar(select(User).where(User.oauth_id == str(info["id"])))
+        if not user:
+            user = User(username=email or info.get("login") or str(info["id"]),
+                        email=email, oauth_provider="github", oauth_id=str(info["id"]))
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
 
     token = create_token({"sub": str(user.id), "username": user.username})
     return HTMLResponse(POPUP_CLOSE_HTML.replace("TOKEN_PLACEHOLDER", token))
@@ -233,7 +240,10 @@ async def facebook_callback(code: str, db: AsyncSession = Depends(get_db)):
             params={"client_id": FACEBOOK_CLIENT_ID, "client_secret": FACEBOOK_CLIENT_SECRET,
                     "redirect_uri": FACEBOOK_REDIRECT_URI, "code": code},
         )
-        token_res.raise_for_status()
+        if token_res.status_code != 200:
+            logger.error(f"FACEBOOK TOKEN ERROR: {token_res.text}")
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Facebook OAuth error: {token_res.text}")
+
         access_token = token_res.json()["access_token"]
         user_res = await client.get(
             "https://graph.facebook.com/me",
@@ -242,14 +252,14 @@ async def facebook_callback(code: str, db: AsyncSession = Depends(get_db)):
         user_res.raise_for_status()
         info = user_res.json()
 
-    fb_id = str(info["id"])
-    user = await db.scalar(select(User).where(User.oauth_id == fb_id))
-    if not user:
-        user = User(username=info.get("email") or info.get("name") or fb_id,
-                    email=info.get("email"), oauth_provider="facebook", oauth_id=fb_id)
-        db.add(user)
-        await db.commit()
-        await db.refresh(user)
+        fb_id = str(info["id"])
+        user = await db.scalar(select(User).where(User.oauth_id == fb_id))
+        if not user:
+            user = User(username=info.get("email") or info.get("name") or fb_id,
+                        email=info.get("email"), oauth_provider="facebook", oauth_id=fb_id)
+            db.add(user)
+            await db.commit()
+            await db.refresh(user)
 
     token = create_token({"sub": str(user.id), "username": user.username})
     return HTMLResponse(POPUP_CLOSE_HTML.replace("TOKEN_PLACEHOLDER", token))
