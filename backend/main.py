@@ -384,24 +384,22 @@ async def blob_upload_handler(request: Request):
     if not BLOB_READ_WRITE_TOKEN:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "BLOB_READ_WRITE_TOKEN is not configured")
 
+    auth_token = request.query_params.get("token", "")
+    if not auth_token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing token")
+    try:
+        decode_token(auth_token)
+    except Exception:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
+
     body = await request.json()
     payload_type = body.get("type")
 
     if payload_type == "blob.generate-client-token":
-        client_payload = body.get("payload", {})
-        pathname = client_payload.get("pathname", "upload")
-
-        async with httpx.AsyncClient() as client:
-            resp = await client.post(
-                "https://blob.vercel-storage.com/handle-upload",
-                headers={
-                    "Authorization": f"Bearer {BLOB_READ_WRITE_TOKEN}",
-                    "Content-Type": "application/json",
-                },
-                json=body,
-            )
-            resp.raise_for_status()
-            return resp.json()
+        return {
+            "type": "blob.generate-client-token",
+            "clientToken": BLOB_READ_WRITE_TOKEN,
+        }
 
     if payload_type == "blob.upload-completed":
         return {"status": "ok"}
