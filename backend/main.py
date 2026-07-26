@@ -384,16 +384,16 @@ async def blob_upload_handler(request: Request):
     if not BLOB_READ_WRITE_TOKEN:
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "BLOB_READ_WRITE_TOKEN is not configured")
 
-    auth_token = request.query_params.get("token", "")
+    body = await request.json()
+    payload_type = body.get("type")
+
+    auth_token = body.get("payload", {}).get("clientPayload", "")
     if not auth_token:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Missing token")
     try:
         decode_token(auth_token)
     except Exception:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
-
-    body = await request.json()
-    payload_type = body.get("type")
 
     if payload_type == "blob.generate-client-token":
         return {
@@ -1270,3 +1270,4 @@ async def graph_similarities(token: str = ""):
             })
 
     return {"edges": edges, "nodes": filenames}
+
