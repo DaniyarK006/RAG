@@ -455,7 +455,7 @@ export default function Documents() {
 
         const blob = await upload(file.name, file, {
           access: 'public',
-          handleUploadUrl: `${API}/documents/blob-upload`,
+          handleUploadUrl: `${API}/api/blob-token`,
           clientPayload: getToken(),
         })
 
@@ -765,3 +765,4 @@ export default function Documents() {
     </div>
   )
 }
+

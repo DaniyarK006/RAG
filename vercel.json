@@ -13,7 +13,7 @@
     }
   },
   "rewrites": [
-    { "source": "/documents/blob-upload", "destination": { "type": "service", "service": "blobapi" } },
+    { "source": "/api/blob-token", "destination": { "type": "service", "service": "blobapi" } },
     { "source": "/auth(/.*)?", "destination": { "type": "service", "service": "backend" } },
     { "source": "/documents(/.*)?", "destination": { "type": "service", "service": "backend" } },
     { "source": "/api(/.*)?", "destination": { "type": "service", "service": "backend" } },
