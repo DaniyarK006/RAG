@@ -7,9 +7,13 @@
     "backend": {
       "root": "backend",
       "entrypoint": "main.py"
+    },
+    "blobapi": {
+      "root": "blob-service"
     }
   },
   "rewrites": [
+    { "source": "/documents/blob-upload", "destination": { "type": "service", "service": "blobapi" } },
     { "source": "/auth(/.*)?", "destination": { "type": "service", "service": "backend" } },
     { "source": "/documents(/.*)?", "destination": { "type": "service", "service": "backend" } },
     { "source": "/api(/.*)?", "destination": { "type": "service", "service": "backend" } },
