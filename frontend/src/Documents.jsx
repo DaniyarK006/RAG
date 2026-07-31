@@ -455,7 +455,7 @@ export default function Documents() {
 
         const blob = await upload(file.name, file, {
           access: 'public',
-          handleUploadUrl: `${API}/api/blob-token`,
+          handleUploadUrl: 'https://blob-token-service.vercel.app/api/token',
           clientPayload: getToken(),
         })
 
@@ -765,4 +765,5 @@ export default function Documents() {
     </div>
   )
 }
+
 
