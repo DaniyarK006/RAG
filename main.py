@@ -5,9 +5,9 @@ from fastapi.responses import RedirectResponse, HTMLResponse
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-import httpx, os
+import httpx, os 
 from dotenv import load_dotenv
-
+import vercel_blob
 from database import get_db, init_db, User, DocumentFeedback
 from models import RegisterRequest, LoginRequest, TokenResponse, UserResponse, FeedbackRequest, ChatRequest
 from auth import hash_password, verify_password, create_token, decode_token
@@ -175,7 +175,6 @@ async def github_callback(code: str, db: AsyncSession = Depends(get_db)):
         if info.get("email"):
             email = info.get("email")
         else:
-            # GitHub may require a separate call for primary email
             emails_res = await client.get(
                 "https://api.github.com/user/emails",
                 headers={"Authorization": f"Bearer {access_token}", "Accept": "application/json"},
@@ -285,6 +284,7 @@ async def upload_document(file: UploadFile = File(...), token: str = ""):
             pass
     
     content = await file.read()
+    blob_result = vercel_blob.put(file.filename, content, {"access": "public", "addRandomSuffix": "false"})
     if is_image(file.filename):
         result = await ingest_image(file.filename, content)
         return {"filename": result["filename"], "chunks": result["chunks"], "source_type": "image"}
@@ -413,7 +413,6 @@ async def numeric_search(body: dict):
     results = []
     for r in rows:
         content = r[2]
-        # Извлекаем числа из чанка для подсветки совпадений
         import re
         found_nums = re.findall(r'[-+]?\d*\.?\d+', content)
         matched = [n for n in numbers if str(n) in found_nums]
