@@ -3,6 +3,8 @@ import { upload } from '@vercel/blob/client'
 
 const API = ''
 const MAX_DOCS = 100
+const DIRECT_UPLOAD_LIMIT = 4 * 1024 * 1024
+const BLOB_TOKEN_URL = 'https://blob-token-service.vercel.app/api/token'
 
 const TYPE_COLORS = {
   PDF:  { bg: 'rgba(239,68,68,0.12)',  border: 'rgba(239,68,68,0.3)',  text: '#f87171' },
@@ -391,6 +393,49 @@ const saveLastOp = (op) => {
   try { localStorage.setItem(LAST_OP_KEY, JSON.stringify(op)) } catch {}
 }
 
+async function uploadSmallFile(file) {
+  const formData = new FormData()
+  formData.append('file', file)
+
+  const res = await authFetch('/documents/upload', {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `Ошибка ${res.status}`)
+  }
+
+  return res.json()
+}
+
+async function uploadLargeFile(file, token) {
+  const blob = await upload(file.name, file, {
+    access: 'public',
+    handleUploadUrl: BLOB_TOKEN_URL,
+    clientPayload: token,
+  })
+
+  const res = await fetch(`${API}/documents/process-uploaded`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename: file.name, blob_url: blob.url, token }),
+  })
+
+  if (res.status === 401) {
+    redirectToLogin()
+    throw new Error('Сессия истекла, нужно войти снова')
+  }
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `Ошибка ${res.status}`)
+  }
+
+  return res.json()
+}
+
 export default function Documents() {
   const [indexed, setIndexed]         = useState([])
   const [queue, setQueue]             = useState([])
@@ -452,30 +497,9 @@ export default function Documents() {
         if (file.size === 0) throw new Error('Файл пустой (0 байт)')
 
         const token = getToken()
-
-        const blob = await upload(file.name, file, {
-          access: 'public',
-          handleUploadUrl: 'https://blob-token-service.vercel.app/api/token',
-          clientPayload: getToken(),
-        })
-
-        const res = await fetch(`${API}/documents/process-uploaded`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename: file.name, blob_url: blob.url, token }),
-        })
-
-        if (res.status === 401) {
-          redirectToLogin()
-          throw new Error('Сессия истекла, нужно войти снова')
-        }
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}))
-          throw new Error(err.detail || `Ошибка ${res.status}`)
-        }
-
-        const data = await res.json()
+        const data = file.size < DIRECT_UPLOAD_LIMIT
+          ? await uploadSmallFile(file)
+          : await uploadLargeFile(file, token)
 
         setIndexed(prev => {
           const exists = prev.find(f => f.id === file.name)
@@ -765,5 +789,3 @@ export default function Documents() {
     </div>
   )
 }
-
-
