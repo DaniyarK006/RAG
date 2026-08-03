@@ -5,6 +5,7 @@ import io
 import numpy as np
 import asyncio
 import logging
+from typing import Optional
 from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,7 @@ DB_CONFIG = {
     "user":     os.getenv("PG_USER",     "postgres"),
     "password": os.getenv("PG_PASSWORD", "mysecurepassword123"),
     "database": os.getenv("PG_DB",       "offline_db"),
+    "sslmode":  os.getenv("PG_SSLMODE",  "prefer"),
 }
 
 
@@ -48,9 +50,18 @@ def init_vector_table():
                     source_type text DEFAULT 'text'
                 );
             """)
-            cur.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS user_id integer DEFAULT 0;")
-            cur.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS source_type text DEFAULT 'text';")
-            cur.execute("CREATE INDEX IF NOT EXISTS idx_chunks_user ON document_chunks (user_id);")
+            cur.execute(
+                "ALTER TABLE document_chunks "
+                "ADD COLUMN IF NOT EXISTS user_id integer DEFAULT 0;"
+            )
+            cur.execute(
+                "ALTER TABLE document_chunks "
+                "ADD COLUMN IF NOT EXISTS source_type text DEFAULT 'text';"
+            )
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_chunks_user "
+                "ON document_chunks (user_id);"
+            )
         conn.commit()
 
 
@@ -62,7 +73,10 @@ def extract_text(filename: str, content: bytes) -> str:
             reader = pypdf.PdfReader(io.BytesIO(content))
             text = "\n".join(page.extract_text() or "" for page in reader.pages)
             # Remove null bytes and other non-printable characters
-            return "".join(char for char in text if char.isprintable() or char in ['\n', '\t', ' '])
+            return "".join(
+                char for char in text
+                if char.isprintable() or char in ['\n', '\t', ' ']
+            )
         except ImportError:
             pass
     if ext in ("docx", "doc"):
@@ -140,8 +154,12 @@ async def check_ollama_health() -> tuple[bool, str]:
                 return False, f"Ollama returned status {res.status_code}"
             models      = res.json().get("models", [])
             model_names = [m.get("name", "") for m in models]
-            if EMBED_MODEL not in model_names and not any(EMBED_MODEL in m for m in model_names):
-                return False, f"Model '{EMBED_MODEL}' not found. Run: ollama pull {EMBED_MODEL}"
+            if (EMBED_MODEL not in model_names
+                    and not any(EMBED_MODEL in m for m in model_names)):
+                return False, (
+                    f"Model '{EMBED_MODEL}' not found. "
+                    f"Run: ollama pull {EMBED_MODEL}"
+                )
             return True, "ok"
     except httpx.ConnectError:
         return False, f"Cannot connect to Ollama at {OLLAMA_URL}"
@@ -197,6 +215,55 @@ def diverse_retrieve(all_chunks: list[dict], top_k: int) -> list[dict]:
     return diverse[:top_k]
 
 
+def vector_store_info(user_id: int = 0) -> dict:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            if user_id > 0:
+                cur.execute(
+                    "SELECT COUNT(*) FROM document_chunks "
+                    "WHERE source_type != 'pending' AND user_id = %s",
+                    (user_id,)
+                )
+                total_chunks = cur.fetchone()[0]
+                cur.execute(
+                    "SELECT COUNT(DISTINCT filename) FROM document_chunks "
+                    "WHERE source_type != 'pending' AND filename IS NOT NULL "
+                    "AND user_id = %s",
+                    (user_id,)
+                )
+                total_docs = cur.fetchone()[0]
+                cur.execute(
+                    "SELECT source_type, COUNT(*) FROM document_chunks "
+                    "WHERE source_type != 'pending' AND user_id = %s "
+                    "GROUP BY source_type",
+                    (user_id,)
+                )
+                by_type = {r[0]: r[1] for r in cur.fetchall()}
+            else:
+                cur.execute(
+                    "SELECT COUNT(*) FROM document_chunks "
+                    "WHERE source_type != 'pending'"
+                )
+                total_chunks = cur.fetchone()[0]
+                cur.execute(
+                    "SELECT COUNT(DISTINCT filename) FROM document_chunks "
+                    "WHERE source_type != 'pending' AND filename IS NOT NULL"
+                )
+                total_docs = cur.fetchone()[0]
+                cur.execute(
+                    "SELECT source_type, COUNT(*) FROM document_chunks "
+                    "WHERE source_type != 'pending' GROUP BY source_type"
+                )
+                by_type = {r[0]: r[1] for r in cur.fetchall()}
+    return {
+        "total_chunks":    total_chunks,
+        "total_documents": total_docs,
+        "embed_model":     EMBED_MODEL,
+        "embedding_dim":   EMBEDDING_DIM,
+        "by_source_type":  by_type,
+    }
+
+
 class RAGPipeline:
 
     def prepare(self, filename: str, content: bytes) -> list[str]:
@@ -205,7 +272,7 @@ class RAGPipeline:
     async def embed(self, chunks: list[str]) -> list[list[float]]:
         # High parallelism for fast embedding generation
         sem = asyncio.Semaphore(20)
-        async def embed_one(chunk):
+        async def embed_one(chunk: str) -> list[float]:
             async with sem:
                 return await get_embedding(chunk)
         return await asyncio.gather(*[embed_one(c) for c in chunks])
@@ -231,28 +298,34 @@ class RAGPipeline:
         return len(chunks)
 
     async def store_fast(self, filename: str, chunks: list[str],
-                         user_id: int = 0, source_type: str = "text") -> int:
-        """Store chunks immediately without embeddings for instant availability."""
+                     user_id: int = 0, source_type: str = "text") -> int:
+        from psycopg2.extras import execute_values
+
         init_vector_table()
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "DELETE FROM document_chunks WHERE filename = %s",
-                    (filename,)
+                    "DELETE FROM document_chunks WHERE filename = %s AND user_id = %s",
+                    (filename, user_id)
                 )
                 deleted = cur.rowcount
                 logger.info(f"Deleted {deleted} old chunks for {filename}")
-                
-                # Insert new chunks
+
+                rows = []
                 for i, chunk in enumerate(chunks):
-                    # Clean chunk: remove null bytes and other problematic characters
-                    clean_chunk = "".join(char for char in chunk if char.isprintable() or char in ['\n', '\t', ' '])
-                    cur.execute(
-                        "INSERT INTO document_chunks "
-                        "(user_id, filename, chunk_index, content, embedding, source_type) "
-                        "VALUES (%s, %s, %s, %s, %s, %s)",
-                        (user_id, filename, i, clean_chunk, None, source_type)
+                    clean_chunk = "".join(
+                        char for char in chunk
+                        if char.isprintable() or char in ['\n', '\t', ' ']
                     )
+                    rows.append((user_id, filename, i, clean_chunk, None, source_type))
+
+                execute_values(
+                    cur,
+                    "INSERT INTO document_chunks "
+                    "(user_id, filename, chunk_index, content, embedding, source_type) "
+                    "VALUES %s",
+                    rows
+                )
             conn.commit()
         return len(chunks)
 
@@ -260,7 +333,7 @@ class RAGPipeline:
         # Get query embedding vector
         emb = await get_embedding(query)
         fetch_k = max(top_k * 6, 60)
-        
+
         with get_conn() as conn:
             with conn.cursor() as cur:
                 if user_id > 0:
@@ -281,9 +354,9 @@ class RAGPipeline:
                         ORDER BY embedding <=> %s::vector
                         LIMIT %s
                     """, (emb, emb, fetch_k))
-                
+
                 rows = cur.fetchall()
-                
+
         if not rows:
             keywords = set(query.lower().split())
             with get_conn() as conn:
@@ -295,7 +368,7 @@ class RAGPipeline:
                         LIMIT %s
                     """, (user_id, fetch_k))
                     rows = cur.fetchall()
-            
+
             # Score by keyword overlap
             scored = []
             for r in rows:
@@ -317,7 +390,7 @@ class RAGPipeline:
             except ImportError:
                 pass
             return rerank_chunks(scored[:top_k])
-        
+
         all_chunks = [
             {"filename": r[0], "chunk_index": r[1], "content": r[2],
              "source_type": r[3], "similarity": round(r[4], 4)}
@@ -336,7 +409,7 @@ class RAGPipeline:
         return rerank_chunks(diverse)
 
     def augment_prompt(self, query: str, chunks: list[dict],
-                       all_files: list[dict] = None,
+                       all_files: Optional[list[dict]] = None,
                        total_docs: int = 0, total_chunks: int = 0) -> str:
 
         if all_files:
@@ -345,7 +418,8 @@ class RAGPipeline:
                 for i, f in enumerate(all_files)
             )
             system_context = (
-                f"СПИСОК ФАЙЛОВ ({total_docs} файлов, {total_chunks} чанков) — используй этот список для ответа, не говори 'представлен выше':\n"
+                f"СПИСОК ФАЙЛОВ ({total_docs} файлов, {total_chunks} чанков) — "
+                f"используй этот список для ответа, не говори 'представлен выше':\n"
                 f"{files_list}\n"
             )
         else:
@@ -400,11 +474,17 @@ class RAGPipeline:
             return 0.0
 
     async def run(self, query: str, top_k: int = 10, user_id: int = 0) -> dict:
-        greetings = ['привет', 'hello', 'hi', 'здравствуй', 'здравствуйте', 'добрый день', 'добрый вечер', 'доброе утро', 'хай', 'салют']
+        greetings = [
+            'привет', 'hello', 'hi', 'здравствуй', 'здравствуйте',
+            'добрый день', 'добрый вечер', 'доброе утро', 'хай', 'салют'
+        ]
         if query.lower().strip().rstrip('!.,') in greetings:
             return {
                 "query": query,
-                "answer": "Привет! Я готов помочь. Задайте вопрос по документам из базы знаний — найду точный ответ с источниками.",
+                "answer": (
+                    "Привет! Я готов помочь. Задайте вопрос по документам "
+                    "из базы знаний — найду точный ответ с источниками."
+                ),
                 "sources": [],
                 "cosine_similarity": 1.0,
             }
@@ -416,7 +496,10 @@ class RAGPipeline:
         if not chunks:
             return {
                 "query":             query,
-                "answer":            f"По вашему запросу ничего не найдено в базе знаний. Попробуйте переформулировать вопрос.",
+                "answer":            (
+                    "По вашему запросу ничего не найдено в базе знаний. "
+                    "Попробуйте переформулировать вопрос."
+                ),
                 "sources":           [],
                 "cosine_similarity": 0.0,
             }
@@ -441,8 +524,8 @@ class RAGPipeline:
                     "rerank_score": c.get("rerank_score"),
                 }
                 for c in chunks
-        ],
-            
+            ],
+
             "source_chunks": [
                 {
                     "filename":   c["filename"],
@@ -450,10 +533,10 @@ class RAGPipeline:
                     "similarity": c["similarity"],
                 }
                 for c in chunks
-        ],
-            
-        "cosine_similarity": score,
-    }
+            ],
+
+            "cosine_similarity": score,
+        }
 
 pipeline = RAGPipeline()
 
@@ -478,12 +561,12 @@ def simple_rag(query: str, top_k: int = 5, user_id: int = 0) -> list[dict]:
     # No valid user - return empty (orphaned files are hidden)
     if user_id <= 0:
         return []
-    
+
     keywords = set(query.lower().split())
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT filename, chunk_index, content FROM document_chunks 
+                SELECT filename, chunk_index, content FROM document_chunks
                 WHERE user_id = %s
             """, (user_id,))
             rows = cur.fetchall()
@@ -507,28 +590,3 @@ async def modular_rag(query: str, top_k: int = 5) -> list[dict]:
             seen.add(key)
             merged.append(r)
     return merged[:top_k]
-
-def vector_store_info(user_id: int = 0) -> dict:
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            if user_id > 0:
-                cur.execute("SELECT COUNT(*) FROM document_chunks WHERE source_type != 'pending' AND user_id = %s", (user_id,))
-                total_chunks = cur.fetchone()[0]
-                cur.execute("SELECT COUNT(DISTINCT filename) FROM document_chunks WHERE source_type != 'pending' AND filename IS NOT NULL AND user_id = %s", (user_id,))
-                total_docs = cur.fetchone()[0]
-                cur.execute("SELECT source_type, COUNT(*) FROM document_chunks WHERE source_type != 'pending' AND user_id = %s GROUP BY source_type", (user_id,))
-                by_type = {r[0]: r[1] for r in cur.fetchall()}
-            else:
-                cur.execute("SELECT COUNT(*) FROM document_chunks WHERE source_type != 'pending'")
-                total_chunks = cur.fetchone()[0]
-                cur.execute("SELECT COUNT(DISTINCT filename) FROM document_chunks WHERE source_type != 'pending' AND filename IS NOT NULL")
-                total_docs = cur.fetchone()[0]
-                cur.execute("SELECT source_type, COUNT(*) FROM document_chunks WHERE source_type != 'pending' GROUP BY source_type")
-                by_type = {r[0]: r[1] for r in cur.fetchall()}
-    return {
-        "total_chunks":    total_chunks,
-        "total_documents": total_docs,
-        "embed_model":     EMBED_MODEL,
-        "embedding_dim":   EMBEDDING_DIM,
-        "by_source_type":  by_type,
-    }
