@@ -12,7 +12,7 @@ from auth import hash_password, verify_password, create_token, decode_token
 from rag import (ingest_document, search_documents, generate_answer, simple_rag,
                  modular_rag, vector_store_info, init_vector_table, get_embedding,
                  get_conn, pipeline, OLLAMA_URL, LLM_MODEL, check_ollama_health,
-                 get_indexing_progress)
+                 get_indexing_progress, init_upload_jobs_table, create_upload_job, update_upload_job, get_recent_jobs)
 from index import vector_index, tree_index, list_index, keyword_index, compare_indexes
 from multimodal import is_image, ingest_image, multimodal_answer, summarize_multimodal, get_dataset_stats, multimodal_retrieve
 from adaptive import adaptive_rag, AdaptiveRAG, init_adaptive_tables
@@ -77,6 +77,10 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Connector scheduler: {e}")
     yield
+    try:
+        init_upload_jobs_table()
+    except Exception as e:
+        logger.warning(f"init_upload_jobs_table: {e}")
 
 app = FastAPI(title="DocRAG", lifespan=lifespan)
 
@@ -326,9 +330,7 @@ async def upload_document(file: UploadFile = File(...), token: str = "", backgro
         try:
             payload = decode_token(token)
             user_id = int(payload["sub"])
-            logger.info(f"Upload from user_id={user_id}, username={payload.get('username')}")
         except Exception as e:
-            logger.warning(f"Invalid token: {e}")
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
 
     if not file.filename:
@@ -338,20 +340,24 @@ async def upload_document(file: UploadFile = File(...), token: str = "", backgro
     if not content:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "File is empty")
 
+    ext = file.filename.rsplit(".", 1)[-1].lower().upper()
+    job_id = create_upload_job(user_id, file.filename, ext)
+
     if is_image(file.filename):
         try:
             result = await ingest_image(file.filename, content)
+            update_upload_job(job_id, "done", result["chunks"])
             return {"filename": result["filename"], "chunks": result["chunks"], "source_type": "image", "status": "done"}
         except Exception as e:
-            logger.error(f"Image ingestion error for {file.filename}: {e}\n{traceback.format_exc()}")
+            update_upload_job(job_id, "error", 0, str(e))
             raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, f"Image processing error: {str(e)}")
 
-    ext = file.filename.rsplit(".", 1)[-1].lower()
-    source_type = ext if ext in ("pdf", "docx", "txt") else "text"
+    source_type = ext.lower() if ext.lower() in ("pdf", "docx", "txt") else "text"
 
     try:
         chunks = pipeline.prepare(file.filename, content)
         chunk_count = await pipeline.store_fast(file.filename, chunks, user_id, source_type)
+        update_upload_job(job_id, "done", chunk_count)
 
         from io import BytesIO
         from fastapi import UploadFile as FastAPIFile
@@ -363,12 +369,10 @@ async def upload_document(file: UploadFile = File(...), token: str = "", backgro
             "chunks": chunk_count,
             "source_type": source_type,
             "status": "done",
-            "message": "File indexed and ready to use"
         }
     except Exception as e:
-        logger.error(f"Upload error for {file.filename}: {e}\n{traceback.format_exc()}")
+        update_upload_job(job_id, "error", 0, str(e))
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
-
 
 @app.post("/documents/process-uploaded")
 async def process_uploaded(body: dict, background_tasks: BackgroundTasks):
@@ -1100,6 +1104,16 @@ async def get_feedback(db: AsyncSession = Depends(get_db)):
         "feedback": [{"query": i.query, "score": i.score, "comment": i.comment} for i in items],
     }
 
+@app.get("/documents/jobs")
+async def get_upload_jobs(token: str = ""):
+    user_id = 0
+    if token:
+        try:
+            payload = decode_token(token)
+            user_id = int(payload["sub"])
+        except Exception:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
+    return {"jobs": get_recent_jobs(user_id)}
 
 @app.post("/api/users/create")
 async def create_user(email: str, password: str, role: str = "employee", department: str = "general"):

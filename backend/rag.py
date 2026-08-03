@@ -64,6 +64,68 @@ def init_vector_table():
                 "ON document_chunks (user_id);"
             )
         conn.commit()
+        
+def init_upload_jobs_table():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS upload_jobs (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    filename TEXT NOT NULL,
+                    file_type TEXT,
+                    status TEXT NOT NULL DEFAULT 'processing',
+                    chunks INTEGER DEFAULT 0,
+                    error TEXT,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW()
+                )
+            """)
+        conn.commit()
+
+
+def create_upload_job(user_id: int, filename: str, file_type: str) -> int:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO upload_jobs (user_id, filename, file_type, status) "
+                "VALUES (%s, %s, %s, 'processing') RETURNING id",
+                (user_id, filename, file_type)
+            )
+            job_id = cur.fetchone()[0]
+        conn.commit()
+    return job_id
+
+
+def update_upload_job(job_id: int, status: str, chunks: int = 0, error: str = None):
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE upload_jobs SET status = %s, chunks = %s, error = %s, updated_at = NOW() "
+                "WHERE id = %s",
+                (status, chunks, error, job_id)
+            )
+        conn.commit()
+
+
+def get_recent_jobs(user_id: int, limit: int = 30) -> list[dict]:
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, filename, file_type, status, chunks, error, created_at "
+                "FROM upload_jobs WHERE user_id = %s "
+                "ORDER BY created_at DESC LIMIT %s",
+                (user_id, limit)
+            )
+            rows = cur.fetchall()
+    return [
+        {
+            "id": r[0], "filename": r[1], "file_type": r[2],
+            "status": r[3], "chunks": r[4], "error": r[5],
+            "created_at": r[6].isoformat() if r[6] else None
+        }
+        for r in rows
+    ]
 
 
 def extract_text(filename: str, content: bytes) -> str:
