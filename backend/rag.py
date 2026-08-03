@@ -337,49 +337,79 @@ class RAGPipeline:
         user_id: int = 0,
         batch_size: int = 20,
     ) -> int:
-        """Embed ALL chunks of a file in batches, updating progress after each batch.
+        """Embed ALL chunks of a file, resuming only missing embeddings.
 
-        This ensures every chunk gets a vector embedding so vector search
-        can find the file after page refresh or section change.
+        - Survives F5 / server restarts: only chunks with embedding IS NULL are embedded.
+        - Batch DB writes with execute_values for speed.
+        - Progress is persisted in the DB (indexing_jobs table).
         """
+        from psycopg2.extras import execute_values
+
         total = len(chunks)
         if total == 0:
             return 0
 
-        set_indexing_progress(user_id, filename, total, 0, "indexing")
+        # Determine which chunks still need embeddings (resume support)
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT chunk_index FROM document_chunks "
+                    "WHERE filename = %s AND user_id = %s AND embedding IS NULL",
+                    (filename, user_id)
+                )
+                missing_indexes = {r[0] for r in cur.fetchall()}
+
+        # If no missing chunks, we're already fully embedded
+        if not missing_indexes:
+            set_indexing_progress(user_id, filename, total, total, "done")
+            clear_indexing_progress(user_id, filename)
+            return total
+
+        # Build pending list as (index, chunk_text)
+        pending = [(i, chunks[i]) for i in range(total) if i in missing_indexes]
+        done_so_far = total - len(pending)
+
+        set_indexing_progress(user_id, filename, total, done_so_far, "indexing")
 
         try:
-            for start in range(0, total, batch_size):
-                batch = chunks[start:start + batch_size]
-                embeddings = await self.embed(batch)
+            # Process in batches of `batch_size`
+            for start in range(0, len(pending), batch_size):
+                batch = pending[start:start + batch_size]
+                batch_texts = [b[1] for b in batch]
+                batch_embeddings = await self.embed(batch_texts)
 
-                # Update embeddings in DB for this batch
+                # Batch-write embeddings in a single execute_values call
+                rows = [
+                    (emb, filename, user_id, idx)
+                    for (idx, _), emb in zip(batch, batch_embeddings)
+                ]
                 with get_conn() as conn:
                     with conn.cursor() as cur:
-                        for i, (chunk, emb) in enumerate(zip(batch, embeddings)):
-                            cur.execute(
-                                "UPDATE document_chunks SET embedding = %s "
-                                "WHERE filename = %s AND user_id = %s AND chunk_index = %s",
-                                (emb, filename, user_id, start + i)
-                            )
+                        execute_values(
+                            cur,
+                            "UPDATE document_chunks SET embedding = v.emb "
+                            "FROM (VALUES %s) AS v(emb, filename, user_id, chunk_index) "
+                            "WHERE document_chunks.filename = v.filename "
+                            "AND document_chunks.user_id = v.user_id "
+                            "AND document_chunks.chunk_index = v.chunk_index",
+                            rows,
+                            template="(%s::vector, %s, %s, %s)",
+                        )
                     conn.commit()
 
-                done = min(start + batch_size, total)
-                set_indexing_progress(user_id, filename, total, done, "indexing")
+                done_so_far = min(total, done_so_far + len(batch))
+                set_indexing_progress(user_id, filename, total, done_so_far, "indexing")
                 logger.info(
-                    f"Embedded {done}/{total} chunks of {filename} for user {user_id}"
+                    f"Embedded {done_so_far}/{total} chunks of {filename} for user {user_id}"
                 )
 
             set_indexing_progress(user_id, filename, total, total, "done")
+            clear_indexing_progress(user_id, filename)
             return total
         except Exception as e:
-            set_indexing_progress(user_id, filename, total, 0, "error")
+            set_indexing_progress(user_id, filename, total, done_so_far, "error")
             logger.error(f"Embedding error for {filename}: {e}")
             raise
-        finally:
-            # Keep "done" status visible briefly, then clear
-            if total > 0:
-                clear_indexing_progress(user_id, filename)
 
     async def retrieve(self, query: str, top_k: int = 10, user_id: int = 0) -> list[dict]:
         # Get query embedding vector
@@ -592,33 +622,87 @@ class RAGPipeline:
 
 pipeline = RAGPipeline()
 
-# In-memory indexing progress tracker (per user_id -> {filename: {total, done, status}})
-_indexing_progress: dict[int, dict[str, dict]] = {}
+# Progress tracking is persisted in the DB so it survives F5 / server restarts.
+# Table: indexing_jobs (user_id, filename, total_chunks, done_chunks, status, updated_at)
+
+
+def _ensure_indexing_table():
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS indexing_jobs (
+                    user_id      integer NOT NULL DEFAULT 0,
+                    filename     text NOT NULL,
+                    total_chunks integer NOT NULL DEFAULT 0,
+                    done_chunks  integer NOT NULL DEFAULT 0,
+                    status       text NOT NULL DEFAULT 'indexing',
+                    updated_at   timestamp DEFAULT now(),
+                    PRIMARY KEY (user_id, filename)
+                );
+            """)
+        conn.commit()
 
 
 def get_indexing_progress(user_id: int = 0) -> dict:
-    """Return current indexing progress for a user."""
-    return _indexing_progress.get(user_id, {})
+    """Return current indexing progress for a user, persisted in DB."""
+    try:
+        _ensure_indexing_table()
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT filename, total_chunks, done_chunks, status "
+                    "FROM indexing_jobs WHERE user_id = %s "
+                    "AND status IN ('indexing','error')",
+                    (user_id,)
+                )
+                rows = cur.fetchall()
+        return {
+            r[0]: {
+                "total": r[1],
+                "done": r[2],
+                "status": r[3],
+            }
+            for r in rows
+        }
+    except Exception:
+        return {}
 
 
 def set_indexing_progress(user_id: int, filename: str, total: int, done: int, status: str = "indexing"):
-    """Update indexing progress for a file."""
-    if user_id not in _indexing_progress:
-        _indexing_progress[user_id] = {}
-    _indexing_progress[user_id][filename] = {
-        "total": total,
-        "done": done,
-        "status": status,
-        "updated_at": time.time(),
-    }
+    """Persist indexing progress to DB (survives F5 / restart)."""
+    try:
+        _ensure_indexing_table()
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO indexing_jobs (user_id, filename, total_chunks, done_chunks, status, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, now())
+                    ON CONFLICT (user_id, filename)
+                    DO UPDATE SET
+                        total_chunks = EXCLUDED.total_chunks,
+                        done_chunks  = EXCLUDED.done_chunks,
+                        status       = EXCLUDED.status,
+                        updated_at   = now()
+                """, (user_id, filename, total, done, status))
+            conn.commit()
+    except Exception:
+        pass
 
 
 def clear_indexing_progress(user_id: int, filename: str):
-    """Remove indexing progress entry when done."""
-    if user_id in _indexing_progress:
-        _indexing_progress[user_id].pop(filename, None)
-        if not _indexing_progress[user_id]:
-            _indexing_progress.pop(user_id, None)
+    """Mark progress as done so it stops showing."""
+    try:
+        _ensure_indexing_table()
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE indexing_jobs SET status = 'done' "
+                    "WHERE user_id = %s AND filename = %s",
+                    (user_id, filename)
+                )
+            conn.commit()
+    except Exception:
+        pass
 
 
 async def ingest_document(filename: str, content: bytes, user_id: int = 0) -> int:
