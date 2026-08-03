@@ -11,7 +11,8 @@ from models import RegisterRequest, LoginRequest, TokenResponse, UserResponse, F
 from auth import hash_password, verify_password, create_token, decode_token
 from rag import (ingest_document, search_documents, generate_answer, simple_rag,
                  modular_rag, vector_store_info, init_vector_table, get_embedding,
-                 get_conn, pipeline, OLLAMA_URL, LLM_MODEL, check_ollama_health)
+                 get_conn, pipeline, OLLAMA_URL, LLM_MODEL, check_ollama_health,
+                 get_indexing_progress)
 from index import vector_index, tree_index, list_index, keyword_index, compare_indexes
 from multimodal import is_image, ingest_image, multimodal_answer, summarize_multimodal, get_dataset_stats, multimodal_retrieve
 from adaptive import adaptive_rag, AdaptiveRAG, init_adaptive_tables
@@ -305,25 +306,15 @@ async def me(token: str, db: AsyncSession = Depends(get_db)):
 
 
 async def _process_document(file: UploadFile, user_id: int):
+    """Embed ALL chunks of a document in the background with progress tracking."""
     try:
         content = await file.read()
         if not content:
             return
         chunks = pipeline.prepare(file.filename, content)
-        chunks_to_embed = chunks[:20]
-        if chunks_to_embed:
-            embeddings = await pipeline.embed(chunks_to_embed)
-            init_vector_table()
-            with get_conn() as conn:
-                with conn.cursor() as cur:
-                    for i, (chunk, emb) in enumerate(zip(chunks_to_embed, embeddings)):
-                        cur.execute(
-                            "UPDATE document_chunks SET embedding = %s "
-                            "WHERE filename = %s AND user_id = %s AND chunk_index = %s",
-                            (emb, file.filename, user_id, i)
-                        )
-                conn.commit()
-            logger.info(f"Embedded first {len(chunks_to_embed)} chunks of {file.filename} for user {user_id}")
+        if chunks:
+            await pipeline.embed_all_with_progress(file.filename, chunks, user_id)
+            logger.info(f"Fully embedded {len(chunks)} chunks of {file.filename} for user {user_id}")
     except Exception as e:
         logger.error(f"Background embedding error for {file.filename}: {e}\n{traceback.format_exc()}")
 
@@ -434,6 +425,33 @@ async def process_uploaded(body: dict, background_tasks: BackgroundTasks):
     except Exception as e:
         logger.error(f"Process uploaded error for {filename}: {e}\n{traceback.format_exc()}")
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
+
+
+@app.get("/documents/indexing-status")
+async def indexing_status(token: str = ""):
+    user_id = 0
+    if token:
+        try:
+            payload = decode_token(token)
+            user_id = int(payload["sub"])
+        except Exception:
+            pass
+    progress = get_indexing_progress(user_id)
+    # Also include overall embedding coverage from the DB
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT COUNT(*) FILTER (WHERE embedding IS NOT NULL),
+                       COUNT(*)
+                FROM document_chunks
+                WHERE source_type != 'pending' AND user_id = %s
+            """, (user_id,))
+            row = cur.fetchone()
+    return {
+        "files": progress,
+        "embedded_chunks": row[0] if row else 0,
+        "total_chunks": row[1] if row else 0,
+    }
 
 
 @app.get("/documents/info")

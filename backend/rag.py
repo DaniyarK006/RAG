@@ -5,6 +5,7 @@ import io
 import numpy as np
 import asyncio
 import logging
+import time
 from typing import Optional
 from dotenv import load_dotenv
 
@@ -329,6 +330,57 @@ class RAGPipeline:
             conn.commit()
         return len(chunks)
 
+    async def embed_all_with_progress(
+        self,
+        filename: str,
+        chunks: list[str],
+        user_id: int = 0,
+        batch_size: int = 20,
+    ) -> int:
+        """Embed ALL chunks of a file in batches, updating progress after each batch.
+
+        This ensures every chunk gets a vector embedding so vector search
+        can find the file after page refresh or section change.
+        """
+        total = len(chunks)
+        if total == 0:
+            return 0
+
+        set_indexing_progress(user_id, filename, total, 0, "indexing")
+
+        try:
+            for start in range(0, total, batch_size):
+                batch = chunks[start:start + batch_size]
+                embeddings = await self.embed(batch)
+
+                # Update embeddings in DB for this batch
+                with get_conn() as conn:
+                    with conn.cursor() as cur:
+                        for i, (chunk, emb) in enumerate(zip(batch, embeddings)):
+                            cur.execute(
+                                "UPDATE document_chunks SET embedding = %s "
+                                "WHERE filename = %s AND user_id = %s AND chunk_index = %s",
+                                (emb, filename, user_id, start + i)
+                            )
+                    conn.commit()
+
+                done = min(start + batch_size, total)
+                set_indexing_progress(user_id, filename, total, done, "indexing")
+                logger.info(
+                    f"Embedded {done}/{total} chunks of {filename} for user {user_id}"
+                )
+
+            set_indexing_progress(user_id, filename, total, total, "done")
+            return total
+        except Exception as e:
+            set_indexing_progress(user_id, filename, total, 0, "error")
+            logger.error(f"Embedding error for {filename}: {e}")
+            raise
+        finally:
+            # Keep "done" status visible briefly, then clear
+            if total > 0:
+                clear_indexing_progress(user_id, filename)
+
     async def retrieve(self, query: str, top_k: int = 10, user_id: int = 0) -> list[dict]:
         # Get query embedding vector
         emb = await get_embedding(query)
@@ -539,6 +591,34 @@ class RAGPipeline:
         }
 
 pipeline = RAGPipeline()
+
+# In-memory indexing progress tracker (per user_id -> {filename: {total, done, status}})
+_indexing_progress: dict[int, dict[str, dict]] = {}
+
+
+def get_indexing_progress(user_id: int = 0) -> dict:
+    """Return current indexing progress for a user."""
+    return _indexing_progress.get(user_id, {})
+
+
+def set_indexing_progress(user_id: int, filename: str, total: int, done: int, status: str = "indexing"):
+    """Update indexing progress for a file."""
+    if user_id not in _indexing_progress:
+        _indexing_progress[user_id] = {}
+    _indexing_progress[user_id][filename] = {
+        "total": total,
+        "done": done,
+        "status": status,
+        "updated_at": time.time(),
+    }
+
+
+def clear_indexing_progress(user_id: int, filename: str):
+    """Remove indexing progress entry when done."""
+    if user_id in _indexing_progress:
+        _indexing_progress[user_id].pop(filename, None)
+        if not _indexing_progress[user_id]:
+            _indexing_progress.pop(user_id, None)
 
 
 async def ingest_document(filename: str, content: bytes, user_id: int = 0) -> int:

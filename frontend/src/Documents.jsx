@@ -445,11 +445,36 @@ export default function Documents() {
   const [activePanel, setActivePanel] = useState(null)
   const [vizTarget, setVizTarget]     = useState(null)
   const [lastOp, setLastOp]           = useState(loadLastOp)
+  const [indexing, setIndexing]       = useState({})  // { filename: { total, done, status } }
   const inputRef   = useRef(null)
   const pollTimers = useRef([])
 
+  // Poll indexing progress (works across refresh / section switches)
+  const pollIndexing = async () => {
+    try {
+      const token = getToken()
+      const url = token
+        ? `/documents/indexing-status?token=${encodeURIComponent(token)}`
+        : '/documents/indexing-status'
+      const res = await fetch(url)
+      if (!res.ok) return
+      const data = await res.json()
+      if (data.files && Object.keys(data.files).length > 0) {
+        setIndexing(data.files)
+      } else {
+        setIndexing(prev => (Object.keys(prev).length ? {} : prev))
+      }
+    } catch { /* ignore polling errors */ }
+  }
+
+  // Start indexing polling on mount + every 2s
   useEffect(() => {
     refresh()
+    pollIndexing()
+    const id = setInterval(() => {
+      pollIndexing()
+    }, 2000)
+    pollTimers.current.push(id)
     return () => pollTimers.current.forEach(clearInterval)
   }, [])
 
@@ -711,6 +736,8 @@ export default function Documents() {
             <div className="file-list">
               {queue.map(item => {
                 const ts = typeStyle(item.type)
+                const prog = indexing[item.name]
+                const pct = prog && prog.total > 0 ? Math.round((prog.done / prog.total) * 100) : null
                 return (
                   <div key={item.id} className="file-row">
                     <div className="fbadge" style={{ background: ts.bg, border: `1px solid ${ts.border}`, color: ts.text }}>
@@ -719,10 +746,21 @@ export default function Documents() {
                     <div className="finfo">
                       <div className="fname">{item.name}</div>
                       <div className="fmeta">{fmtSize(item.size)}</div>
+                      {pct !== null && item.status === 'uploading' && (
+                        <div style={{ marginTop: 6 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'monospace', fontSize: 10, color: 'var(--txt-3)', marginBottom: 3 }}>
+                            <span>Векторизация</span>
+                            <span>{prog.done} / {prog.total} чанков · {pct}%</span>
+                          </div>
+                          <div style={{ height: 4, background: 'var(--bg-3)', borderRadius: 2 }}>
+                            <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, var(--accent), #60a5fa)', borderRadius: 2, transition: 'width .4s' }} />
+                          </div>
+                        </div>
+                      )}
                       {item.status === 'error' && <div className="ferr">{item.error}</div>}
                     </div>
                     <div className={`fstatus s-${item.status}`}>
-                      {item.status === 'uploading' && 'Индексирование...'}
+                      {item.status === 'uploading' && (pct !== null ? `${pct}%` : 'Индексирование...')}
                       {item.status === 'done'      && 'Готово'}
                       {item.status === 'error'     && 'Ошибка'}
                     </div>
@@ -749,6 +787,9 @@ export default function Documents() {
             <div className="file-list">
               {indexed.map(file => {
                 const ts = typeStyle(file.type)
+                const prog = indexing[file.name]
+                const pct = prog && prog.total > 0 ? Math.round((prog.done / prog.total) * 100) : null
+                const isIndexing = prog && prog.status === 'indexing' && pct !== null && pct < 100
                 return (
                   <div key={file.id} className="file-row">
                     <div className="fbadge" style={{ background: ts.bg, border: `1px solid ${ts.border}`, color: ts.text }}>
@@ -757,8 +798,21 @@ export default function Documents() {
                     <div className="finfo">
                       <div className="fname">{file.name}</div>
                       <div className="fmeta">{file.chunks} чанков</div>
+                      {isIndexing && (
+                        <div style={{ marginTop: 6 }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'monospace', fontSize: 10, color: 'var(--txt-3)', marginBottom: 3 }}>
+                            <span>Векторизация</span>
+                            <span>{prog.done} / {prog.total} · {pct}%</span>
+                          </div>
+                          <div style={{ height: 4, background: 'var(--bg-3)', borderRadius: 2 }}>
+                            <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, var(--accent), #60a5fa)', borderRadius: 2, transition: 'width .4s' }} />
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div className="fstatus s-done">○ В базе</div>
+                    <div className={`fstatus ${isIndexing ? 's-uploading' : 's-done'}`}>
+                      {isIndexing ? `${pct}%` : '○ В базе'}
+                    </div>
                     <button className="fremove" onClick={() => removeIndexed(file.id)}>
                       <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                         <path d="M18 6L6 18M6 6l12 12"/>
