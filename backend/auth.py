@@ -3,9 +3,9 @@ from jose import jwt, JWTError
 import bcrypt as _bcrypt
 import os
 
-SECRET = os.getenv("JWT_SECRET", "change-me")
+SECRET = os.getenv("JWT_SECRET", "docrag-super-secret-key-change-in-production-12345")
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440))  # 24 hours
+EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 1440))  
 
 
 def hash_password(password: str) -> str:
