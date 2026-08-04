@@ -16,8 +16,8 @@ load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 OLLAMA_URL    = os.getenv("OLLAMA_URL",  "http://localhost:11434")
 EMBED_MODEL   = os.getenv("EMBED_MODEL", "bge-m3:latest")
 LLM_MODEL     = os.getenv("LLM_MODEL",  "qwen2.5:7b")
-CHUNK_SIZE    = 800
-CHUNK_OVERLAP = 100
+CHUNK_SIZE    = 1500
+CHUNK_OVERLAP = 150
 EMBEDDING_DIM = 1024
 
 DB_CONFIG = {
@@ -334,7 +334,7 @@ class RAGPipeline:
 
     async def embed(self, chunks: list[str]) -> list[list[float]]:
         # High parallelism for fast embedding generation
-        sem = asyncio.Semaphore(20)
+        sem = asyncio.Semaphore(50)
         async def embed_one(chunk: str) -> list[float]:
             async with sem:
                 return await get_embedding(chunk)
@@ -397,7 +397,7 @@ class RAGPipeline:
         filename: str,
         chunks: list[str],
         user_id: int = 0,
-        batch_size: int = 20,
+        batch_size: int = 50,
     ) -> int:
         """Embed ALL chunks of a file, resuming only missing embeddings.
 

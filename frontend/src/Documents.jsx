@@ -446,34 +446,6 @@ export default function Documents() {
   const [vizTarget, setVizTarget]     = useState(null)
   const [lastOp, setLastOp]           = useState(loadLastOp)
   const [indexing, setIndexing]       = useState({})  // { filename: { total, done, status } }
-
-  useEffect(() => {
-    const files = Object.entries(indexing)
-    if (files.length === 0) return
-
-    setQueue(prev => {
-      const existingNames = new Set(prev.map(q => q.name))
-      const newItems = files
-        .filter(([name]) => !existingNames.has(name))
-        .map(([name, info]) => ({
-          id: `job-${name}`,
-          name,
-          type: name.split('.').pop().toUpperCase(),
-          size: 0,
-          status: info.status === 'error' ? 'error' : 'uploading',
-          error: info.status === 'error' ? 'Ошибка индексации' : null,
-        }))
-      return [...prev, ...newItems]
-    })
-
-    const activeFile = files.find(([, info]) => info.status === 'indexing')
-    if (activeFile) {
-      const [name, info] = activeFile
-      setVizTarget(prev => (prev && prev.name === name)
-        ? prev
-        : { name, type: name.split('.').pop().toUpperCase(), chunks: info.total, status: 'uploading' })
-    }
-  }, [indexing])
   const inputRef   = useRef(null)
   const pollTimers = useRef([])
 
