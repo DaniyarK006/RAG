@@ -1,3 +1,8 @@
+/* ===========================================
+   Mobile responsive styles
+   Hidden on desktop, active on mobile
+   =========================================== */
+
 /* Hamburger button — hidden on desktop, visible on mobile */
 .hamburger {
   display: none;
@@ -10,31 +15,74 @@
   align-items: center;
   justify-content: center;
   transition: background var(--dur), color var(--dur);
+  flex-shrink: 0;
 }
 .hamburger:hover { background: var(--bg-2); color: var(--txt-1); }
 
-/* Fixed hamburger — always visible on mobile, top-left corner */
-.hamburger-fixed {
-  display: none;
-  position: fixed;
-  top: 8px;
-  left: 8px;
-  z-index: 150;
-  background: var(--bg-1);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 8px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-}
+/* Mobile topbar — hidden on desktop, visible on mobile for non-chat views */
+.mobile-topbar { display: none; }
+
+/* Sidebar close button — hidden on desktop (sidebar always visible) */
+.sidebar-close { display: none; }
 
 /* Sidebar backdrop — only visible on mobile when sidebar is open */
 .sidebar-backdrop { display: none; }
 
-/* Tablet & below (<=768px) */
+/* ===========================================
+   Tablet & below (<=768px)
+   =========================================== */
 @media (max-width: 768px) {
-  .hamburger { display: flex; }
-  .hamburger-fixed { display: flex; }
+  /* Use dynamic viewport height (accounts for mobile browser chrome) */
+  .app {
+    height: 100vh;
+    height: 100dvh;
+  }
 
+  /* Hamburger visible on mobile */
+  .hamburger { display: flex; }
+
+  /* Mobile topbar — visible for non-chat views */
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    height: 50px;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-1);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    flex-shrink: 0;
+  }
+  .mobile-topbar-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--txt-1);
+  }
+
+  /* Sidebar close button — visible on mobile */
+  .sidebar-close {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--txt-3);
+    cursor: pointer;
+    padding: 6px;
+    border-radius: var(--radius-sm);
+    margin-left: auto;
+    margin-right: 8px;
+    transition: all 0.15s;
+  }
+  .sidebar-close:hover {
+    color: var(--txt-1);
+    border-color: var(--txt-3);
+    background: var(--bg-2);
+  }
+
+  /* Sidebar — drawer mode */
   .sidebar {
     position: fixed;
     top: 0;
@@ -42,12 +90,14 @@
     bottom: 0;
     z-index: 200;
     width: 280px;
+    max-width: 85vw;
     transform: translateX(-100%);
     transition: transform 0.28s var(--ease);
     box-shadow: 4px 0 24px rgba(0,0,0,0.4);
   }
   .sidebar.open { transform: translateX(0); }
 
+  /* Sidebar backdrop */
   .sidebar-backdrop {
     display: block;
     position: fixed;
@@ -64,29 +114,53 @@
     pointer-events: auto;
   }
 
-  .topbar { height: 50px; padding: 0 12px 0 52px; }
+  /* Main area — ensure proper overflow */
+  .main {
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Chat topbar — compact */
+  .topbar {
+    height: 50px;
+    padding: 0 10px;
+    gap: 8px;
+    flex-shrink: 0;
+  }
   .topbar-title { font-size: 13px; }
 
-  .index-chips {
-    margin-left: 8px;
-    overflow-x: auto;
+  /* Hide index chips on mobile — too cramped, use sidebar nav instead */
+  .index-chips { display: none; }
+
+  /* Messages — full width, compact */
+  .messages {
+    flex: 1;
+    overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
+    padding: 14px 12px;
+    gap: 14px;
   }
-  .index-chips::-webkit-scrollbar { display: none; }
-  .index-chip { padding: 3px 10px; font-size: 10px; }
-
-  .messages { padding: 14px 12px; gap: 14px; }
   .msg-row { max-width: 100%; }
-  .msg-row.user { max-width: 85%; }
-  .msg-avatar { width: 28px; height: 28px; font-size: 13px; }
-  .msg-bubble { font-size: 13.5px; padding: 11px 14px; line-height: 1.6; }
+  .msg-row.user { max-width: 88%; }
+  .msg-avatar { width: 28px; height: 28px; font-size: 13px; flex-shrink: 0; }
+  .msg-bubble { font-size: 14px; padding: 11px 14px; line-height: 1.6; }
 
-  .input-area { padding: 8px 12px 14px; }
+  /* Input area — sticky at bottom */
+  .input-area {
+    padding: 8px 12px;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
+    flex-shrink: 0;
+    background: var(--bg-1);
+    border-top: 1px solid var(--border);
+  }
   .input-shell { padding: 8px 10px; border-radius: var(--radius-md); }
   .chat-input { font-size: 16px; }
-  .send-btn { width: 36px; height: 36px; }
+  .send-btn { width: 36px; height: 36px; flex-shrink: 0; }
 
+  /* Login — responsive */
   .login-card {
     width: calc(100vw - 32px);
     max-width: 360px;
@@ -102,6 +176,7 @@
   .login-form { gap: 12px; }
   .field-wrap { gap: 5px; }
 
+  /* Documents — responsive */
   .stats-row {
     grid-template-columns: repeat(2, 1fr) !important;
     gap: 8px !important;
@@ -109,7 +184,7 @@
   .sc { padding: 14px 16px; }
   .sc-val { font-size: 18px; }
 
-  .dp { padding: 18px 14px 18px 52px; }
+  .dp { padding: 18px 14px; }
   .dp-header { flex-wrap: wrap; gap: 12px; }
   .dp-actions { flex-wrap: wrap; }
 
@@ -120,7 +195,8 @@
 
   .panel-wrap { padding: 16px 14px; }
 
-  .ns-header { padding: 14px 12px 14px 52px; }
+  /* Numeric search — responsive */
+  .ns-header { padding: 14px 12px; }
   .ns-body { padding: 14px 12px; }
   .ns-card { padding: 14px; }
   .ns-controls { gap: 14px; }
@@ -128,10 +204,12 @@
   .ns-input-row { flex-direction: column; }
   .ns-run-btn { width: 100%; justify-content: center; }
 
+  /* Sidebar elements */
   .new-chat-btn { margin: 10px 8px 6px; }
   .sidebar-brand { padding: 16px 14px 12px; }
   .status-pill { padding: 3px 8px; font-size: 10px; }
 
+  /* Touch-friendly */
   .nav-item { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
   .file-row { -webkit-touch-callout: none; }
 
@@ -145,6 +223,8 @@
   [style*="width: 420"] {
     width: calc(100vw - 24px) !important;
     max-width: 420px !important;
+    max-height: 85vh !important;
+    overflow-y: auto !important;
   }
   [style*="width: 640"] {
     width: calc(100vw - 20px) !important;
@@ -155,20 +235,48 @@
     width: calc(100vw - 24px) !important;
     max-width: 360px !important;
   }
+
+  /* GraphView — responsive */
+  [style*="width: 680"] {
+    width: calc(100vw - 20px) !important;
+    max-width: 680px !important;
+    max-height: 85vh !important;
+  }
+  [style*="16px 28px 12px"] {
+    flex-wrap: wrap !important;
+    padding: 12px 14px !important;
+    gap: 8px !important;
+  }
+  [style*="width: 280px"][style*="flex-shrink: 0"][style*="border-left"] {
+    width: 100% !important;
+    max-height: 40vh !important;
+    border-left: none !important;
+    border-top: 1px solid var(--border) !important;
+  }
+
+  /* CitableAnswer — mobile adjustments */
+  [style*="max-height: 320px"] {
+    max-height: 200px !important;
+  }
+  [style*="max-height: 500px"] {
+    max-height: 300px !important;
+  }
 }
 
-/* Phone (<=480px) */
+/* ===========================================
+   Phone (<=480px)
+   =========================================== */
 @media (max-width: 480px) {
   .stats-row { grid-template-columns: repeat(2, 1fr) !important; }
   .messages { padding: 10px 8px; gap: 10px; }
-  .msg-bubble { font-size: 13px; padding: 10px 12px; }
+  .msg-bubble { font-size: 13.5px; padding: 10px 12px; }
   .msg-avatar { width: 26px; height: 26px; }
-  .input-area { padding: 6px 8px 10px; }
+  .input-area { padding: 6px 8px; padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px)); }
   .login-card { padding: 22px 18px 20px; gap: 18px; }
-  .dp { padding: 14px 10px 14px 52px; }
+  .dp { padding: 14px 10px; }
   .dp-title { font-size: 17px; }
   .sc-val { font-size: 16px; }
-  .topbar { padding: 0 8px 0 52px; height: 48px; }
+  .topbar { padding: 0 8px; height: 48px; }
   .topbar-title { font-size: 12px; }
   .file-row { padding: 10px 12px; gap: 8px; }
   .fname { font-size: 12.5px; }
@@ -176,11 +284,34 @@
   .ns-result-card { padding: 12px; }
   .ns-result-content { font-size: 11.5px; }
   .topbar-left { gap: 8px; }
+  .mobile-topbar { height: 48px; padding: 0 8px; }
+  .mobile-topbar-title { font-size: 13px; }
 }
 
-/* Safe area insets for notched phones */
+/* ===========================================
+   Safe area insets for notched phones
+   =========================================== */
 @supports (padding: env(safe-area-inset-top)) {
-  .topbar { padding-top: env(safe-area-inset-top); height: calc(50px + env(safe-area-inset-top)); }
-  .input-area { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
-  .sidebar { padding-top: env(safe-area-inset-top); }
+  @media (max-width: 768px) {
+    .topbar {
+      padding-top: env(safe-area-inset-top);
+      height: calc(50px + env(safe-area-inset-top));
+    }
+    .mobile-topbar {
+      padding-top: env(safe-area-inset-top);
+      height: calc(50px + env(safe-area-inset-top));
+    }
+    .sidebar {
+      padding-top: env(safe-area-inset-top);
+    }
+  }
+}
+
+/* ===========================================
+   Landscape orientation on phones
+   =========================================== */
+@media (max-width: 900px) and (orientation: landscape) {
+  .messages { padding: 8px 12px; }
+  .msg-bubble { font-size: 13px; }
+  .input-area { padding: 4px 12px; }
 }
