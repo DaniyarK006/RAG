@@ -449,24 +449,6 @@ export default function Documents() {
   const inputRef   = useRef(null)
   const pollTimers = useRef([])
 
-  // Poll indexing progress (works across refresh / section switches)
-  const pollIndexing = async () => {
-    try {
-      const token = getToken()
-      const url = token
-        ? `/documents/indexing-status?token=${encodeURIComponent(token)}`
-        : '/documents/indexing-status'
-      const res = await fetch(url)
-      if (!res.ok) return
-      const data = await res.json()
-      if (data.files && Object.keys(data.files).length > 0) {
-        setIndexing(data.files)
-      } else {
-        setIndexing(prev => (Object.keys(prev).length ? {} : prev))
-      }
-    } catch { /* ignore polling errors */ }
-  }
-
   // Drive embedding by calling /documents/embed-batch repeatedly.
   // Each call embeds 50 chunks (~1-2s), well within Vercel's 5-min timeout.
   // This replaces BackgroundTasks which get killed on Vercel serverless.
@@ -519,14 +501,33 @@ export default function Documents() {
     loop()
   }
 
-  // Start indexing polling on mount + every 2s
+  // On mount: refresh document list, then check if any files are still
+  // being indexed (e.g. after page refresh) and restart embedding loops.
   useEffect(() => {
-    refresh()
-    pollIndexing()
-    const id = setInterval(() => {
-      pollIndexing()
-    }, 2000)
-    pollTimers.current.push(id)
+    const init = async () => {
+      await refresh()
+      // Check indexing status — restart loops for files still being indexed
+      try {
+        const token = getToken()
+        const url = token
+          ? `/documents/indexing-status?token=${encodeURIComponent(token)}`
+          : '/documents/indexing-status'
+        const res = await fetch(url)
+        if (res.ok) {
+          const data = await res.json()
+          if (data.files) {
+            setIndexing(data.files)
+            // Restart embedding loops for files still being indexed
+            for (const [filename, info] of Object.entries(data.files)) {
+              if (info.status === 'indexing') {
+                startEmbeddingLoop(filename)
+              }
+            }
+          }
+        }
+      } catch { /* ignore */ }
+    }
+    init()
     return () => pollTimers.current.forEach(clearInterval)
   }, [])
 

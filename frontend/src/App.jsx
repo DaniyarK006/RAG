@@ -411,47 +411,6 @@ function getAuthToken() {
   return localStorage.getItem('authToken') || sessionStorage.getItem('authToken') || ''
 }
 
-function GlobalIndexingBar({ indexing }) {
-  const files = Object.entries(indexing || {})
-  if (files.length === 0) return null
-
-  return (
-    <div style={{
-      position: 'fixed', top: 0, left: 0, right: 0, zIndex: 999,
-      background: 'rgba(13,17,23,0.95)', backdropFilter: 'blur(8px)',
-      borderBottom: '1px solid rgba(79,142,255,0.25)',
-      padding: '8px 16px', display: 'flex', alignItems: 'center', gap: 16,
-      boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-    }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-        <span style={{
-          width: 8, height: 8, borderRadius: '50%', background: 'var(--accent)',
-          boxShadow: '0 0 8px var(--accent)', animation: 'pulse 1.2s infinite',
-        }} />
-        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', fontFamily: 'monospace' }}>
-          Индексируется...
-        </span>
-      </div>
-      <div style={{ display: 'flex', gap: 12, overflowX: 'auto', flex: 1 }}>
-        {files.map(([name, p]) => {
-          const pct = p.total > 0 ? Math.round((p.done / p.total) * 100) : 0
-          return (
-            <div key={name} style={{ minWidth: 180, flexShrink: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontFamily: 'monospace', fontSize: 10, color: 'var(--txt-3)', marginBottom: 3 }}>
-                <span style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
-                <span>{p.done}/{p.total} · {pct}%</span>
-              </div>
-              <div style={{ height: 4, background: 'var(--bg-3)', borderRadius: 2 }}>
-                <div style={{ height: '100%', width: `${pct}%`, background: 'linear-gradient(90deg, var(--accent), #60a5fa)', borderRadius: 2, transition: 'width .4s' }} />
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 export default function App() {
   const [user, setUser] = useState(() => {
   const stored = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser')
@@ -494,30 +453,9 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem('docragSettings')) || DEFAULT_SETTINGS } catch { return DEFAULT_SETTINGS }
   })
   const [backendUp, setBackendUp] = useState(null)
-  const [indexing, setIndexing]   = useState({})
 
   const bottomRef   = useRef(null)
   const textareaRef = useRef(null)
-
-  // Poll global indexing status (persisted in DB, survives F5 / section switches)
-  useEffect(() => {
-    const poll = async () => {
-      try {
-        const token = getAuthToken()
-        const url = token
-          ? `${API}/documents/indexing-status?token=${encodeURIComponent(token)}`
-          : `${API}/documents/indexing-status`
-        const res = await fetch(url)
-        if (!res.ok) return
-        const data = await res.json()
-        setIndexing(data.files || {})
-      } catch { /* ignore */ }
-    }
-    poll()
-    const id = setInterval(poll, 2000)
-    return () => clearInterval(id)
-  }, [])
-
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', settings.theme)
@@ -684,10 +622,6 @@ export default function App() {
 
   return (
     <div className="app">
-      <style>{`
-        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
-      `}</style>
-      <GlobalIndexingBar indexing={indexing} />
       {showSettings && (
         <SettingsPanel
           settings={settings}
