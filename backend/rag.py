@@ -392,86 +392,94 @@ class RAGPipeline:
             conn.commit()
         return len(chunks)
 
-    async def embed_all_with_progress(
+    async def embed_one_batch(
         self,
         filename: str,
-        chunks: list[str],
         user_id: int = 0,
         batch_size: int = 50,
-    ) -> int:
-        """Embed ALL chunks of a file, resuming only missing embeddings.
+    ) -> dict:
+        """Embed ONE batch of chunks and return progress.
 
-        - Survives F5 / server restarts: only chunks with embedding IS NULL are embedded.
-        - Batch DB writes with execute_values for speed.
-        - Progress is persisted in the DB (indexing_jobs table).
+        Called repeatedly by the frontend via /documents/embed-batch.
+        Each call embeds `batch_size` chunks (~1-2 seconds), well within
+        Vercel's 5-minute serverless timeout.
+
+        Returns: {"done": int, "total": int, "status": "indexing"|"done"}
         """
         from psycopg2.extras import execute_values
 
-        total = len(chunks)
-        if total == 0:
-            return 0
-
-        # Determine which chunks still need embeddings (resume support)
+        # Get total chunks for this file
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT chunk_index FROM document_chunks "
-                    "WHERE filename = %s AND user_id = %s AND embedding IS NULL",
+                    "SELECT COUNT(*) FROM document_chunks "
+                    "WHERE filename = %s AND user_id = %s",
                     (filename, user_id)
                 )
-                missing_indexes = {r[0] for r in cur.fetchall()}
+                total = cur.fetchone()[0]
 
-        # If no missing chunks, we're already fully embedded
-        if not missing_indexes:
-            set_indexing_progress(user_id, filename, total, total, "done")
-            clear_indexing_progress(user_id, filename)
-            return total
+        if total == 0:
+            return {"done": 0, "total": 0, "status": "done"}
 
-        # Build pending list as (index, chunk_text)
-        pending = [(i, chunks[i]) for i in range(total) if i in missing_indexes]
-        done_so_far = total - len(pending)
-
-        set_indexing_progress(user_id, filename, total, done_so_far, "indexing")
-
-        try:
-            # Process in batches of `batch_size`
-            for start in range(0, len(pending), batch_size):
-                batch = pending[start:start + batch_size]
-                batch_texts = [b[1] for b in batch]
-                batch_embeddings = await self.embed(batch_texts)
-
-                # Batch-write embeddings in a single execute_values call
-                rows = [
-                    (emb, filename, user_id, idx)
-                    for (idx, _), emb in zip(batch, batch_embeddings)
-                ]
-                with get_conn() as conn:
-                    with conn.cursor() as cur:
-                        execute_values(
-                            cur,
-                            "UPDATE document_chunks SET embedding = v.emb "
-                            "FROM (VALUES %s) AS v(emb, filename, user_id, chunk_index) "
-                            "WHERE document_chunks.filename = v.filename "
-                            "AND document_chunks.user_id = v.user_id "
-                            "AND document_chunks.chunk_index = v.chunk_index",
-                            rows,
-                            template="(%s::vector, %s, %s, %s)",
-                        )
-                    conn.commit()
-
-                done_so_far = min(total, done_so_far + len(batch))
-                set_indexing_progress(user_id, filename, total, done_so_far, "indexing")
-                logger.info(
-                    f"Embedded {done_so_far}/{total} chunks of {filename} for user {user_id}"
+        # Find chunks with embedding IS NULL (LIMIT batch_size)
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT chunk_index, content FROM document_chunks "
+                    "WHERE filename = %s AND user_id = %s AND embedding IS NULL "
+                    "ORDER BY chunk_index LIMIT %s",
+                    (filename, user_id, batch_size)
                 )
+                pending = cur.fetchall()
 
+        if not pending:
+            # All chunks are embedded
             set_indexing_progress(user_id, filename, total, total, "done")
             clear_indexing_progress(user_id, filename)
-            return total
-        except Exception as e:
-            set_indexing_progress(user_id, filename, total, done_so_far, "error")
-            logger.error(f"Embedding error for {filename}: {e}")
-            raise
+            return {"done": total, "total": total, "status": "done"}
+
+        # Embed this batch (50 concurrent requests via Semaphore)
+        batch_indexes = [r[0] for r in pending]
+        batch_texts = [r[1] for r in pending]
+        batch_embeddings = await self.embed(batch_texts)
+
+        # Batch-write embeddings in a single execute_values call
+        rows = [
+            (emb, filename, user_id, idx)
+            for idx, emb in zip(batch_indexes, batch_embeddings)
+        ]
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                execute_values(
+                    cur,
+                    "UPDATE document_chunks SET embedding = v.emb "
+                    "FROM (VALUES %s) AS v(emb, filename, user_id, chunk_index) "
+                    "WHERE document_chunks.filename = v.filename "
+                    "AND document_chunks.user_id = v.user_id "
+                    "AND document_chunks.chunk_index = v.chunk_index",
+                    rows,
+                    template="(%s::vector, %s, %s, %s)",
+                )
+            conn.commit()
+
+        # Get updated progress
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT COUNT(*) FROM document_chunks "
+                    "WHERE filename = %s AND user_id = %s AND embedding IS NOT NULL",
+                    (filename, user_id)
+                )
+                done = cur.fetchone()[0]
+
+        status = "indexing" if done < total else "done"
+        set_indexing_progress(user_id, filename, total, done, status)
+
+        if done >= total:
+            clear_indexing_progress(user_id, filename)
+
+        logger.info(f"Embedded {done}/{total} chunks of {filename} for user {user_id}")
+        return {"done": done, "total": total, "status": status}
 
     async def retrieve(self, query: str, top_k: int = 10, user_id: int = 0) -> list[dict]:
         # Get query embedding vector

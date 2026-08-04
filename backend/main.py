@@ -12,7 +12,8 @@ from auth import hash_password, verify_password, create_token, decode_token
 from rag import (ingest_document, search_documents, generate_answer, simple_rag,
                  modular_rag, vector_store_info, init_vector_table, get_embedding,
                  get_conn, pipeline, OLLAMA_URL, LLM_MODEL, check_ollama_health,
-                 get_indexing_progress, init_upload_jobs_table, create_upload_job, update_upload_job, get_recent_jobs)
+                 get_indexing_progress, init_upload_jobs_table, create_upload_job, update_upload_job, get_recent_jobs,
+                 set_indexing_progress, clear_indexing_progress)
 from index import vector_index, tree_index, list_index, keyword_index, compare_indexes
 from multimodal import is_image, ingest_image, multimodal_answer, summarize_multimodal, get_dataset_stats, multimodal_retrieve
 from adaptive import adaptive_rag, AdaptiveRAG, init_adaptive_tables
@@ -309,22 +310,8 @@ async def me(token: str, db: AsyncSession = Depends(get_db)):
     return user
 
 
-async def _process_document(file: UploadFile, user_id: int):
-    """Embed ALL chunks of a document in the background with progress tracking."""
-    try:
-        content = await file.read()
-        if not content:
-            return
-        chunks = pipeline.prepare(file.filename, content)
-        if chunks:
-            await pipeline.embed_all_with_progress(file.filename, chunks, user_id)
-            logger.info(f"Fully embedded {len(chunks)} chunks of {file.filename} for user {user_id}")
-    except Exception as e:
-        logger.error(f"Background embedding error for {file.filename}: {e}\n{traceback.format_exc()}")
-
-
 @app.post("/documents/upload")
-async def upload_document(file: UploadFile = File(...), token: str = "", background_tasks: BackgroundTasks = BackgroundTasks()):
+async def upload_document(file: UploadFile = File(...), token: str = ""):
     user_id = 0
     if token:
         try:
@@ -359,23 +346,23 @@ async def upload_document(file: UploadFile = File(...), token: str = "", backgro
         chunk_count = await pipeline.store_fast(file.filename, chunks, user_id, source_type)
         update_upload_job(job_id, "done", chunk_count)
 
-        from io import BytesIO
-        from fastapi import UploadFile as FastAPIFile
-        bg_file = FastAPIFile(filename=file.filename, file=BytesIO(content))
-        background_tasks.add_task(_process_document, bg_file, user_id)
+        # Mark file as needing embedding (progress persisted in DB)
+        set_indexing_progress(user_id, file.filename, chunk_count, 0, "indexing")
 
         return {
             "filename": file.filename,
             "chunks": chunk_count,
             "source_type": source_type,
             "status": "done",
+            "needs_embedding": True,
         }
     except Exception as e:
         update_upload_job(job_id, "error", 0, str(e))
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
 
+
 @app.post("/documents/process-uploaded")
-async def process_uploaded(body: dict, background_tasks: BackgroundTasks):
+async def process_uploaded(body: dict):
     filename = body.get("filename")
     blob_url = body.get("blob_url")
     token = body.get("token", "")
@@ -414,21 +401,45 @@ async def process_uploaded(body: dict, background_tasks: BackgroundTasks):
         chunks = pipeline.prepare(filename, content)
         chunk_count = await pipeline.store_fast(filename, chunks, user_id, source_type)
 
-        from io import BytesIO
-        from fastapi import UploadFile as FastAPIFile
-        bg_file = FastAPIFile(filename=filename, file=BytesIO(content))
-        background_tasks.add_task(_process_document, bg_file, user_id)
+        # Mark file as needing embedding (progress persisted in DB)
+        set_indexing_progress(user_id, filename, chunk_count, 0, "indexing")
 
         return {
             "filename": filename,
             "chunks": chunk_count,
             "source_type": source_type,
             "status": "done",
-            "message": "File indexed and ready to use"
+            "needs_embedding": True,
+            "message": "File stored, embedding in progress"
         }
     except Exception as e:
         logger.error(f"Process uploaded error for {filename}: {e}\n{traceback.format_exc()}")
         raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
+
+
+@app.post("/documents/embed-batch")
+async def embed_batch(body: dict):
+    """Embed ONE batch of 50 chunks. Called repeatedly by frontend.
+
+    This replaces BackgroundTasks which don't work on Vercel serverless.
+    Each call takes ~1-2 seconds, well within the 5-minute timeout.
+    """
+    filename = body.get("filename", "")
+    token = body.get("token", "")
+
+    if not filename:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "filename is required")
+
+    user_id = 0
+    if token:
+        try:
+            payload = decode_token(token)
+            user_id = int(payload["sub"])
+        except Exception:
+            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
+
+    result = await pipeline.embed_one_batch(filename, user_id, batch_size=50)
+    return result
 
 
 @app.get("/documents/indexing-status")

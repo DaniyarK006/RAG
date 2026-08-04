@@ -467,6 +467,58 @@ export default function Documents() {
     } catch { /* ignore polling errors */ }
   }
 
+  // Drive embedding by calling /documents/embed-batch repeatedly.
+  // Each call embeds 50 chunks (~1-2s), well within Vercel's 5-min timeout.
+  // This replaces BackgroundTasks which get killed on Vercel serverless.
+  const embeddingLoops = useRef(new Set())  // track active loops by filename
+
+  const startEmbeddingLoop = async (filename) => {
+    if (embeddingLoops.current.has(filename)) return  // already looping
+    embeddingLoops.current.add(filename)
+
+    const token = getToken()
+    const loop = async () => {
+      try {
+        const res = await fetch('/documents/embed-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename, token }),
+        })
+        if (!res.ok) {
+          embeddingLoops.current.delete(filename)
+          return
+        }
+        const data = await res.json()
+
+        // Update indexing progress
+        setIndexing(prev => ({
+          ...prev,
+          [filename]: { total: data.total, done: data.done, status: data.status }
+        }))
+
+        if (data.status === 'done') {
+          embeddingLoops.current.delete(filename)
+          // Remove from indexing state after a short delay
+          setTimeout(() => {
+            setIndexing(prev => {
+              const next = { ...prev }
+              delete next[filename]
+              return next
+            })
+          }, 1500)
+          // Refresh the document list to show updated chunk count
+          refresh()
+        } else {
+          // Continue embedding — call again after 500ms for maximum speed
+          setTimeout(loop, 500)
+        }
+      } catch {
+        embeddingLoops.current.delete(filename)
+      }
+    }
+    loop()
+  }
+
   // Start indexing polling on mount + every 2s
   useEffect(() => {
     refresh()
@@ -542,6 +594,13 @@ export default function Documents() {
         const finishedOp = { name: file.name, type, chunks: data.chunks || 0, status: 'done', ts: Date.now() }
         setLastOp(finishedOp)
         saveLastOp(finishedOp)
+
+        // Start embedding loop — frontend drives /documents/embed-batch
+        // repeatedly until all chunks are embedded. This replaces BackgroundTasks
+        // which get killed on Vercel serverless.
+        if (data.needs_embedding !== false) {
+          startEmbeddingLoop(file.name)
+        }
 
         const t = setTimeout(() => refresh(), 2000)
         pollTimers.current.push(t)
