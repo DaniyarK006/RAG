@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import './style.css'
+import './mobile.css'
 import Login from './Login.jsx'
 import Documents from './Documents.jsx'
 import NumericSearch from './NumericSearch.jsx'
@@ -453,6 +454,7 @@ export default function App() {
     try { return JSON.parse(localStorage.getItem('docragSettings')) || DEFAULT_SETTINGS } catch { return DEFAULT_SETTINGS }
   })
   const [backendUp, setBackendUp] = useState(null)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const bottomRef   = useRef(null)
   const textareaRef = useRef(null)
@@ -492,6 +494,7 @@ export default function App() {
 
   const setView = (v) => {
     setViewInternal(v)
+    setSidebarOpen(false)
     try { localStorage.setItem('currentView', v) } catch {}
   }
 
@@ -622,6 +625,12 @@ export default function App() {
 
   return (
     <div className="app">
+      <button className="hamburger hamburger-fixed" onClick={() => setSidebarOpen(true)} aria-label="Меню">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M3 12h18M3 6h18M3 18h18"/>
+        </svg>
+      </button>
+      <div className={`sidebar-backdrop${sidebarOpen ? ' visible' : ''}`} onClick={() => setSidebarOpen(false)} />
       {showSettings && (
         <SettingsPanel
           settings={settings}
@@ -639,7 +648,7 @@ export default function App() {
         />
       )}
 
-      <aside className="sidebar">
+      <aside className={`sidebar${sidebarOpen ? ' open' : ''}`}>
         <div className="sidebar-brand">
           <div className="brand-icon">
             <img src={folderIcon} width={20} height={20} alt="brand" />
@@ -668,7 +677,7 @@ export default function App() {
           </button>
         </div>
 
-        <button className="new-chat-btn" onClick={() => setMessages([WELCOME])}>
+        <button className="new-chat-btn" onClick={() => { setMessages([WELCOME]); setSidebarOpen(false) }}>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 5v14M5 12h14"/>
           </svg>
@@ -717,7 +726,7 @@ export default function App() {
         <div className="sidebar-footer">
           {/* settings row */}
           <div
-            onClick={() => setShowSettings(true)}
+            onClick={() => { setShowSettings(true); setSidebarOpen(false) }}
             style={{
               display: 'flex', alignItems: 'center', gap: 9,
               padding: '8px 10px', borderRadius: 6, cursor: 'pointer',

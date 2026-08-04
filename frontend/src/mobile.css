@@ -1,0 +1,186 @@
+/* Hamburger button — hidden on desktop, visible on mobile */
+.hamburger {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--txt-2);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  align-items: center;
+  justify-content: center;
+  transition: background var(--dur), color var(--dur);
+}
+.hamburger:hover { background: var(--bg-2); color: var(--txt-1); }
+
+/* Fixed hamburger — always visible on mobile, top-left corner */
+.hamburger-fixed {
+  display: none;
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 150;
+  background: var(--bg-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+
+/* Sidebar backdrop — only visible on mobile when sidebar is open */
+.sidebar-backdrop { display: none; }
+
+/* Tablet & below (<=768px) */
+@media (max-width: 768px) {
+  .hamburger { display: flex; }
+  .hamburger-fixed { display: flex; }
+
+  .sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 200;
+    width: 280px;
+    transform: translateX(-100%);
+    transition: transform 0.28s var(--ease);
+    box-shadow: 4px 0 24px rgba(0,0,0,0.4);
+  }
+  .sidebar.open { transform: translateX(0); }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    background: rgba(0,0,0,0.5);
+    backdrop-filter: blur(4px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.28s var(--ease);
+  }
+  .sidebar-backdrop.visible {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .topbar { height: 50px; padding: 0 12px 0 52px; }
+  .topbar-title { font-size: 13px; }
+
+  .index-chips {
+    margin-left: 8px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .index-chips::-webkit-scrollbar { display: none; }
+  .index-chip { padding: 3px 10px; font-size: 10px; }
+
+  .messages { padding: 14px 12px; gap: 14px; }
+  .msg-row { max-width: 100%; }
+  .msg-row.user { max-width: 85%; }
+  .msg-avatar { width: 28px; height: 28px; font-size: 13px; }
+  .msg-bubble { font-size: 13.5px; padding: 11px 14px; line-height: 1.6; }
+
+  .input-area { padding: 8px 12px 14px; }
+  .input-shell { padding: 8px 10px; border-radius: var(--radius-md); }
+  .chat-input { font-size: 16px; }
+  .send-btn { width: 36px; height: 36px; }
+
+  .login-card {
+    width: calc(100vw - 32px);
+    max-width: 360px;
+    padding: 28px 22px 24px;
+    border-radius: var(--radius-lg);
+  }
+  .login-logo-icon { width: 44px; height: 44px; }
+  .login-title { font-size: 16px; }
+  .login-page { padding: 16px; }
+  .field-input { font-size: 16px; padding: 11px 14px; }
+  .login-submit { font-size: 14px; padding: 12px; min-height: 48px; }
+  .oauth-link { font-size: 13px; padding: 11px 14px; min-height: 46px; }
+  .login-form { gap: 12px; }
+  .field-wrap { gap: 5px; }
+
+  .stats-row {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+  .sc { padding: 14px 16px; }
+  .sc-val { font-size: 18px; }
+
+  .dp { padding: 18px 14px 18px 52px; }
+  .dp-header { flex-wrap: wrap; gap: 12px; }
+  .dp-actions { flex-wrap: wrap; }
+
+  .drop-zone { padding: 24px 16px; }
+
+  .file-row { padding: 12px 14px; min-height: 48px; }
+  .fbadge { min-width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; }
+
+  .panel-wrap { padding: 16px 14px; }
+
+  .ns-header { padding: 14px 12px 14px 52px; }
+  .ns-body { padding: 14px 12px; }
+  .ns-card { padding: 14px; }
+  .ns-controls { gap: 14px; }
+  .ns-slider { width: 120px; }
+  .ns-input-row { flex-direction: column; }
+  .ns-run-btn { width: 100%; justify-content: center; }
+
+  .new-chat-btn { margin: 10px 8px 6px; }
+  .sidebar-brand { padding: 16px 14px 12px; }
+  .status-pill { padding: 3px 8px; font-size: 10px; }
+
+  .nav-item { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  .file-row { -webkit-touch-callout: none; }
+
+  /* Modals — responsive on mobile */
+  [style*="width: 480"] {
+    width: calc(100vw - 24px) !important;
+    max-width: 480px !important;
+    max-height: 85vh !important;
+    overflow-y: auto !important;
+  }
+  [style*="width: 420"] {
+    width: calc(100vw - 24px) !important;
+    max-width: 420px !important;
+  }
+  [style*="width: 640"] {
+    width: calc(100vw - 20px) !important;
+    max-width: 640px !important;
+    padding: 18px !important;
+  }
+  [style*="width: 360"] {
+    width: calc(100vw - 24px) !important;
+    max-width: 360px !important;
+  }
+}
+
+/* Phone (<=480px) */
+@media (max-width: 480px) {
+  .stats-row { grid-template-columns: repeat(2, 1fr) !important; }
+  .messages { padding: 10px 8px; gap: 10px; }
+  .msg-bubble { font-size: 13px; padding: 10px 12px; }
+  .msg-avatar { width: 26px; height: 26px; }
+  .input-area { padding: 6px 8px 10px; }
+  .login-card { padding: 22px 18px 20px; gap: 18px; }
+  .dp { padding: 14px 10px 14px 52px; }
+  .dp-title { font-size: 17px; }
+  .sc-val { font-size: 16px; }
+  .topbar { padding: 0 8px 0 52px; height: 48px; }
+  .topbar-title { font-size: 12px; }
+  .file-row { padding: 10px 12px; gap: 8px; }
+  .fname { font-size: 12.5px; }
+  .fmeta { font-size: 10px; }
+  .ns-result-card { padding: 12px; }
+  .ns-result-content { font-size: 11.5px; }
+  .topbar-left { gap: 8px; }
+}
+
+/* Safe area insets for notched phones */
+@supports (padding: env(safe-area-inset-top)) {
+  .topbar { padding-top: env(safe-area-inset-top); height: calc(50px + env(safe-area-inset-top)); }
+  .input-area { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  .sidebar { padding-top: env(safe-area-inset-top); }
+}

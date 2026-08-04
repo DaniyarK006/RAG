@@ -189,6 +189,11 @@ export default function Login({ onLogin }) {
   }, [])
 
   const handleOAuth = (provider, url) => {
+    // On mobile, redirect instead of popup (popups are often blocked)
+    if (window.innerWidth <= 768) {
+      window.location.href = url
+      return
+    }
     const w = 500, h = 600
     const left = window.screenX + (window.outerWidth - w) / 2
     const top = window.screenY + (window.outerHeight - h) / 2
