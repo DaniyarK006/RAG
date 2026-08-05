@@ -15,15 +15,12 @@ logger = logging.getLogger(__name__)
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-EMBED_MODEL    = "text-embedding-3-small"
-LLM_MODEL      = "gpt-4o-mini"
-
-from openai import AsyncOpenAI
-openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+OLLAMA_URL    = os.getenv("OLLAMA_URL",    "http://localhost:11434")
+EMBED_MODEL   = os.getenv("EMBED_MODEL",   "bge-m3:latest")
+LLM_MODEL     = os.getenv("LLM_MODEL",     "qwen2.5:7b")
 CHUNK_SIZE    = 1500
 CHUNK_OVERLAP = 150
-EMBEDDING_DIM = 1536
+EMBEDDING_DIM = 1024
 
 DB_CONFIG = {
     "host":     os.getenv("PG_HOST",     "127.0.0.1"),
@@ -216,21 +213,31 @@ def get_all_files_info(user_id: int = 0) -> list[dict]:
 
 async def check_ollama_health() -> tuple[bool, str]:
     try:
-        await openai_client.models.list()
-        return True, "ok"
+        async with httpx.AsyncClient(timeout=5) as client:
+            res = await client.get(f"{OLLAMA_URL}/api/tags")
+            if res.status_code != 200:
+                return False, f"Ollama returned status {res.status_code}"
+            models = [m.get("name", "") for m in res.json().get("models", [])]
+            if not any(EMBED_MODEL in m for m in models):
+                return False, f"Model '{EMBED_MODEL}' not found. Run: ollama pull {EMBED_MODEL}"
+            return True, "ok"
+    except httpx.ConnectError:
+        return False, f"Cannot connect to Ollama at {OLLAMA_URL}"
     except Exception as e:
         return False, str(e)
 
 
 async def get_embedding(text: str) -> list[float]:
-    res = await openai_client.embeddings.create(
-        model=EMBED_MODEL,
-        input=text,
-    )
-    emb = res.data[0].embedding
-    if not emb:
-        raise ValueError("Empty embedding returned")
-    return emb
+    async with httpx.AsyncClient(timeout=60) as client:
+        res = await client.post(f"{OLLAMA_URL}/api/embeddings", json={
+            "model": EMBED_MODEL,
+            "prompt": text,
+        })
+        res.raise_for_status()
+        emb = res.json().get("embedding")
+        if not emb:
+            raise ValueError("Empty embedding returned")
+        return emb
 
 
 def rerank_chunks(chunks: list[dict]) -> list[dict]:
@@ -593,14 +600,20 @@ class RAGPipeline:
         )
 
     async def generate(self, prompt: str) -> str:
-        res = await openai_client.chat.completions.create(
-            model=LLM_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.1,
-            max_tokens=2048,
-            top_p=0.9,
-        )
-        return res.choices[0].message.content.strip()
+        async with httpx.AsyncClient(timeout=180) as client:
+            res = await client.post(f"{OLLAMA_URL}/api/generate", json={
+                "model": LLM_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "options": {
+                    "temperature": 0.7,
+                    "num_predict": 2048,
+                    "top_p": 0.95,
+                    "repeat_penalty": 1.1,
+                },
+            })
+            res.raise_for_status()
+            return res.json()["response"].strip()
 
     async def evaluate(self, query: str, answer: str) -> float:
         try:
