@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import httpx
 import psycopg2
 import os
