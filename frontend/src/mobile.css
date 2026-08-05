@@ -1,6 +1,6 @@
 /* ===========================================
-   Mobile responsive styles
-   Hidden on desktop, active on mobile
+   Mobile responsive styles — iPhone optimized
+   Prevents: layout shift, rubber band, zoom, horizontal scroll
    =========================================== */
 
 /* Hamburger button — hidden on desktop, visible on mobile */
@@ -16,6 +16,7 @@
   justify-content: center;
   transition: background var(--dur), color var(--dur);
   flex-shrink: 0;
+  touch-action: manipulation;
 }
 .hamburger:hover { background: var(--bg-2); color: var(--txt-1); }
 
@@ -29,13 +30,42 @@
 .sidebar-backdrop { display: none; }
 
 /* ===========================================
-   Tablet & below (<=768px)
+   iPhone & mobile fixes — prevent shifting, bouncing, zooming
    =========================================== */
 @media (max-width: 768px) {
-  /* Use dynamic viewport height (accounts for mobile browser chrome) */
+  /* Lock the entire page — no body scrolling, no rubber band */
+  html, body {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden !important;
+    overscroll-behavior: none !important;
+    -webkit-overflow-scrolling: auto;
+    -webkit-text-size-adjust: 100%;
+    -ms-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* App container — fixed to viewport, uses dynamic height */
   .app {
+    position: fixed !important;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 100%;
     height: 100vh;
     height: 100dvh;
+    overflow: hidden !important;
+    overscroll-behavior: none !important;
+    display: flex;
+    flex-direction: column;
   }
 
   /* Hamburger visible on mobile */
@@ -48,12 +78,14 @@
     gap: 12px;
     height: 50px;
     padding: 0 12px;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
     border-bottom: 1px solid var(--border);
     background: var(--bg-1);
-    position: sticky;
-    top: 0;
+    position: relative;
     z-index: 50;
     flex-shrink: 0;
+    touch-action: manipulation;
   }
   .mobile-topbar-title {
     font-size: 14px;
@@ -75,6 +107,7 @@
     margin-left: auto;
     margin-right: 8px;
     transition: all 0.15s;
+    touch-action: manipulation;
   }
   .sidebar-close:hover {
     color: var(--txt-1);
@@ -82,18 +115,25 @@
     background: var(--bg-2);
   }
 
-  /* Sidebar — drawer mode */
+  /* Sidebar — drawer mode, fixed position */
   .sidebar {
-    position: fixed;
+    position: fixed !important;
     top: 0;
     left: 0;
     bottom: 0;
     z-index: 200;
     width: 280px;
     max-width: 85vw;
+    height: 100vh;
+    height: 100dvh;
     transform: translateX(-100%);
     transition: transform 0.28s var(--ease);
     box-shadow: 4px 0 24px rgba(0,0,0,0.4);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
   }
   .sidebar.open { transform: translateX(0); }
 
@@ -114,65 +154,94 @@
     pointer-events: auto;
   }
 
-  /* Main area — ensure proper overflow */
+  /* Main area — flex column, no overflow on parent */
   .main {
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
     flex: 1;
     min-width: 0;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden !important;
+    position: relative;
   }
 
-  /* Chat topbar — compact */
+  /* Chat topbar — compact, fixed height */
   .topbar {
     height: 50px;
+    min-height: 50px;
     padding: 0 10px;
+    padding-left: max(10px, env(safe-area-inset-left));
+    padding-right: max(10px, env(safe-area-inset-right));
     gap: 8px;
     flex-shrink: 0;
+    touch-action: manipulation;
   }
   .topbar-title { font-size: 13px; }
 
-  /* Hide index chips on mobile — too cramped, use sidebar nav instead */
+  /* Hide index chips on mobile — too cramped */
   .index-chips { display: none; }
 
-  /* Messages — full width, compact */
+  /* Messages — the only scrollable area, contained scroll */
   .messages {
     flex: 1;
+    min-height: 0;
     overflow-y: auto;
+    overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     padding: 14px 12px;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
     gap: 14px;
   }
   .msg-row { max-width: 100%; }
   .msg-row.user { max-width: 88%; }
   .msg-avatar { width: 28px; height: 28px; font-size: 13px; flex-shrink: 0; }
-  .msg-bubble { font-size: 14px; padding: 11px 14px; line-height: 1.6; }
+  .msg-bubble { font-size: 14px; padding: 11px 14px; line-height: 1.6; word-break: break-word; overflow-wrap: break-word; }
 
-  /* Input area — sticky at bottom */
+  /* Input area — fixed at bottom, no shifting */
   .input-area {
-    padding: 8px 12px;
-    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
     flex-shrink: 0;
+    padding: 8px 12px;
+    padding-left: max(12px, env(safe-area-inset-left));
+    padding-right: max(12px, env(safe-area-inset-right));
+    padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
     background: var(--bg-1);
     border-top: 1px solid var(--border);
   }
   .input-shell { padding: 8px 10px; border-radius: var(--radius-md); }
-  .chat-input { font-size: 16px; }
-  .send-btn { width: 36px; height: 36px; flex-shrink: 0; }
+  .chat-input { font-size: 16px; touch-action: manipulation; }
+  .send-btn { width: 36px; height: 36px; flex-shrink: 0; touch-action: manipulation; }
 
-  /* Login — responsive */
+  /* Login — responsive, centered, no scroll */
+  .login-page {
+    position: fixed !important;
+    top: 0; left: 0; right: 0; bottom: 0;
+    width: 100%;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 16px;
+    padding-top: max(16px, env(safe-area-inset-top));
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+  }
   .login-card {
-    width: calc(100vw - 32px);
+    width: 100%;
     max-width: 360px;
+    max-height: 100%;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
     padding: 28px 22px 24px;
     border-radius: var(--radius-lg);
   }
   .login-logo-icon { width: 44px; height: 44px; }
   .login-title { font-size: 16px; }
-  .login-page { padding: 16px; }
-  .field-input { font-size: 16px; padding: 11px 14px; }
-  .login-submit { font-size: 14px; padding: 12px; min-height: 48px; }
-  .oauth-link { font-size: 13px; padding: 11px 14px; min-height: 46px; }
+  .field-input { font-size: 16px; padding: 11px 14px; touch-action: manipulation; }
+  .login-submit { font-size: 14px; padding: 12px; min-height: 48px; touch-action: manipulation; }
+  .oauth-link { font-size: 13px; padding: 11px 14px; min-height: 46px; touch-action: manipulation; }
   .login-form { gap: 12px; }
   .field-wrap { gap: 5px; }
 
@@ -190,7 +259,7 @@
 
   .drop-zone { padding: 24px 16px; }
 
-  .file-row { padding: 12px 14px; min-height: 48px; }
+  .file-row { padding: 12px 14px; min-height: 48px; touch-action: manipulation; }
   .fbadge { min-width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; }
 
   .panel-wrap { padding: 16px 14px; }
@@ -202,29 +271,38 @@
   .ns-controls { gap: 14px; }
   .ns-slider { width: 120px; }
   .ns-input-row { flex-direction: column; }
-  .ns-run-btn { width: 100%; justify-content: center; }
+  .ns-run-btn { width: 100%; justify-content: center; touch-action: manipulation; }
 
   /* Sidebar elements */
-  .new-chat-btn { margin: 10px 8px 6px; }
+  .new-chat-btn { margin: 10px 8px 6px; touch-action: manipulation; }
   .sidebar-brand { padding: 16px 14px 12px; }
   .status-pill { padding: 3px 8px; font-size: 10px; }
 
-  /* Touch-friendly */
-  .nav-item { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
+  /* Touch-friendly — prevent long-press menu, selection */
+  .nav-item {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+    touch-action: manipulation;
+  }
   .file-row { -webkit-touch-callout: none; }
 
-  /* Modals — responsive on mobile */
+  /* Modals — responsive on mobile, centered, no body scroll */
   [style*="width: 480"] {
     width: calc(100vw - 24px) !important;
     max-width: 480px !important;
     max-height: 85vh !important;
+    max-height: 85dvh !important;
     overflow-y: auto !important;
+    overscroll-behavior: contain;
   }
   [style*="width: 420"] {
     width: calc(100vw - 24px) !important;
     max-width: 420px !important;
     max-height: 85vh !important;
+    max-height: 85dvh !important;
     overflow-y: auto !important;
+    overscroll-behavior: contain;
   }
   [style*="width: 640"] {
     width: calc(100vw - 20px) !important;
@@ -241,6 +319,8 @@
     width: calc(100vw - 20px) !important;
     max-width: 680px !important;
     max-height: 85vh !important;
+    max-height: 85dvh !important;
+    overscroll-behavior: contain;
   }
   [style*="16px 28px 12px"] {
     flex-wrap: wrap !important;
@@ -250,6 +330,7 @@
   [style*="width: 280px"][style*="flex-shrink: 0"][style*="border-left"] {
     width: 100% !important;
     max-height: 40vh !important;
+    max-height: 40dvh !important;
     border-left: none !important;
     border-top: 1px solid var(--border) !important;
   }
@@ -261,10 +342,22 @@
   [style*="max-height: 500px"] {
     max-height: 300px !important;
   }
+
+  /* Prevent any element from causing horizontal scroll */
+  * {
+    max-width: 100vw;
+    box-sizing: border-box;
+  }
+
+  /* SVG and images — never overflow */
+  svg, img {
+    max-width: 100%;
+    height: auto;
+  }
 }
 
 /* ===========================================
-   Phone (<=480px)
+   Phone (<=480px) — even more compact
    =========================================== */
 @media (max-width: 480px) {
   .stats-row { grid-template-columns: repeat(2, 1fr) !important; }
@@ -276,7 +369,7 @@
   .dp { padding: 14px 10px; }
   .dp-title { font-size: 17px; }
   .sc-val { font-size: 16px; }
-  .topbar { padding: 0 8px; height: 48px; }
+  .topbar { padding: 0 8px; height: 48px; min-height: 48px; }
   .topbar-title { font-size: 12px; }
   .file-row { padding: 10px 12px; gap: 8px; }
   .fname { font-size: 12.5px; }
@@ -289,29 +382,12 @@
 }
 
 /* ===========================================
-   Safe area insets for notched phones
-   =========================================== */
-@supports (padding: env(safe-area-inset-top)) {
-  @media (max-width: 768px) {
-    .topbar {
-      padding-top: env(safe-area-inset-top);
-      height: calc(50px + env(safe-area-inset-top));
-    }
-    .mobile-topbar {
-      padding-top: env(safe-area-inset-top);
-      height: calc(50px + env(safe-area-inset-top));
-    }
-    .sidebar {
-      padding-top: env(safe-area-inset-top);
-    }
-  }
-}
-
-/* ===========================================
    Landscape orientation on phones
    =========================================== */
-@media (max-width: 900px) and (orientation: landscape) {
-  .messages { padding: 8px 12px; }
+@media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
+  .messages { padding: 6px 12px; }
   .msg-bubble { font-size: 13px; }
   .input-area { padding: 4px 12px; }
+  .topbar { height: 40px; min-height: 40px; }
+  .mobile-topbar { height: 40px; }
 }
