@@ -535,7 +535,23 @@ async def ask(q: str, top_k: int = 5, token: str = ""):
             user_id = int(payload["sub"])
         except Exception:
             pass
-    return await generate_answer(q, top_k, user_id)
+
+    q_lower = q.lower()
+    is_count_query = any(kw in q_lower for kw in ["сколько", "количество", "число", "count", "how many"])
+    is_compare_query = any(kw in q_lower for kw in ["одинаков", "схож", "похож", "сравн", "same", "similar", "compare"])
+
+    if is_count_query or is_compare_query:
+        try:
+            return await handle_comparison_query(q, is_count_query, is_compare_query, user_id)
+        except Exception as e:
+            logger.error(f"ask comparison error: {e}\n{traceback.format_exc()}")
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
+
+    try:
+        return await generate_answer(q, top_k, user_id)
+    except Exception as e:
+        logger.error(f"ask error: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, str(e))
 
 
 @app.post("/api/chat")
