@@ -1,8 +1,5 @@
 import time
-import httpx
-from rag import get_conn, get_embedding, cosine_similarity, RAGPipeline, OLLAMA_URL, LLM_MODEL
-
-_pipeline = RAGPipeline()
+from rag import get_conn, get_embedding, cosine_similarity, RAGPipeline, pipeline as _pipeline
 
 
 def init_adaptive_tables():
@@ -69,35 +66,11 @@ class AdaptiveRetriever:
 
 class AdaptiveGenerator:
 
-    BASE_TEMP = 0.1
-    MAX_TEMP  = 0.7
-
-    def _variance(self, index_type: str) -> float | None:
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT VARIANCE(expert_score) FROM adaptive_feedback
-                    WHERE index_type = %s AND expert_score IS NOT NULL
-                """, (index_type,))
-                val = cur.fetchone()[0]
-        return float(val) if val is not None else None
-
-    def _temperature(self, variance: float | None) -> float:
-        if variance is None:
-            return self.BASE_TEMP
-        return round(self.BASE_TEMP + min(variance * 0.15, self.MAX_TEMP - self.BASE_TEMP), 2)
+    BASE_TEMP = 0.7
 
     async def generate(self, prompt: str, index_type: str) -> tuple[str, float]:
-        temperature = self._temperature(self._variance(index_type))
-        async with httpx.AsyncClient(timeout=120) as client:
-            res = await client.post(f"{OLLAMA_URL}/api/generate", json={
-                "model": LLM_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "options": {"temperature": temperature, "num_predict": 600},
-            })
-            res.raise_for_status()
-        return res.json()["response"].strip(), temperature
+        answer = await _pipeline.generate(prompt)
+        return answer, self.BASE_TEMP
 
 
 class AdaptiveEvaluator:

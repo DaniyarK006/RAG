@@ -1,26 +1,27 @@
 from __future__ import annotations
 
-import httpx
 import psycopg2
 import os
 import io
 import numpy as np
 import asyncio
 import logging
-import time
 from typing import Optional
 from dotenv import load_dotenv
+from openai import AsyncOpenAI
 
 logger = logging.getLogger(__name__)
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
-OLLAMA_URL    = os.getenv("OLLAMA_URL",    "http://localhost:11434")
-EMBED_MODEL   = os.getenv("EMBED_MODEL",   "bge-m3:latest")
-LLM_MODEL     = os.getenv("LLM_MODEL",     "qwen2.5:7b")
-CHUNK_SIZE    = 1500
-CHUNK_OVERLAP = 150
-EMBEDDING_DIM = 1024
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+EMBED_MODEL    = "text-embedding-3-small"
+LLM_MODEL      = "gpt-4o-mini"
+CHUNK_SIZE     = 1500
+CHUNK_OVERLAP  = 150
+EMBEDDING_DIM  = 1536
+
+openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
 DB_CONFIG = {
     "host":     os.getenv("PG_HOST",     "127.0.0.1"),
@@ -53,20 +54,12 @@ def init_vector_table():
                     source_type text DEFAULT 'text'
                 );
             """)
-            cur.execute(
-                "ALTER TABLE document_chunks "
-                "ADD COLUMN IF NOT EXISTS user_id integer DEFAULT 0;"
-            )
-            cur.execute(
-                "ALTER TABLE document_chunks "
-                "ADD COLUMN IF NOT EXISTS source_type text DEFAULT 'text';"
-            )
-            cur.execute(
-                "CREATE INDEX IF NOT EXISTS idx_chunks_user "
-                "ON document_chunks (user_id);"
-            )
+            cur.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS user_id integer DEFAULT 0;")
+            cur.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS source_type text DEFAULT 'text';")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_chunks_user ON document_chunks (user_id);")
         conn.commit()
-        
+
+
 def init_upload_jobs_table():
     with get_conn() as conn:
         with conn.cursor() as cur:
@@ -103,8 +96,7 @@ def update_upload_job(job_id: int, status: str, chunks: int = 0, error: str = No
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE upload_jobs SET status = %s, chunks = %s, error = %s, updated_at = NOW() "
-                "WHERE id = %s",
+                "UPDATE upload_jobs SET status = %s, chunks = %s, error = %s, updated_at = NOW() WHERE id = %s",
                 (status, chunks, error, job_id)
             )
         conn.commit()
@@ -115,17 +107,13 @@ def get_recent_jobs(user_id: int, limit: int = 30) -> list[dict]:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT id, filename, file_type, status, chunks, error, created_at "
-                "FROM upload_jobs WHERE user_id = %s "
-                "ORDER BY created_at DESC LIMIT %s",
+                "FROM upload_jobs WHERE user_id = %s ORDER BY created_at DESC LIMIT %s",
                 (user_id, limit)
             )
             rows = cur.fetchall()
     return [
-        {
-            "id": r[0], "filename": r[1], "file_type": r[2],
-            "status": r[3], "chunks": r[4], "error": r[5],
-            "created_at": r[6].isoformat() if r[6] else None
-        }
+        {"id": r[0], "filename": r[1], "file_type": r[2], "status": r[3],
+         "chunks": r[4], "error": r[5], "created_at": r[6].isoformat() if r[6] else None}
         for r in rows
     ]
 
@@ -137,11 +125,7 @@ def extract_text(filename: str, content: bytes) -> str:
             import pypdf
             reader = pypdf.PdfReader(io.BytesIO(content))
             text = "\n".join(page.extract_text() or "" for page in reader.pages)
-            # Remove null bytes and other non-printable characters
-            return "".join(
-                char for char in text
-                if char.isprintable() or char in ['\n', '\t', ' ']
-            )
+            return "".join(c for c in text if c.isprintable() or c in ['\n', '\t', ' '])
         except ImportError:
             pass
     if ext in ("docx", "doc"):
@@ -196,16 +180,14 @@ def get_all_files_info(user_id: int = 0) -> list[dict]:
                     SELECT filename, COUNT(*) as chunk_count, source_type
                     FROM document_chunks
                     WHERE user_id = %s AND source_type != 'pending'
-                    GROUP BY filename, source_type
-                    ORDER BY filename
+                    GROUP BY filename, source_type ORDER BY filename
                 """, (user_id,))
             else:
                 cur.execute("""
                     SELECT filename, COUNT(*) as chunk_count, source_type
                     FROM document_chunks
                     WHERE source_type != 'pending'
-                    GROUP BY filename, source_type
-                    ORDER BY filename
+                    GROUP BY filename, source_type ORDER BY filename
                 """)
             rows = cur.fetchall()
     return [{"filename": r[0], "chunk_count": r[1], "source_type": r[2]} for r in rows]
@@ -213,31 +195,18 @@ def get_all_files_info(user_id: int = 0) -> list[dict]:
 
 async def check_ollama_health() -> tuple[bool, str]:
     try:
-        async with httpx.AsyncClient(timeout=5) as client:
-            res = await client.get(f"{OLLAMA_URL}/api/tags")
-            if res.status_code != 200:
-                return False, f"Ollama returned status {res.status_code}"
-            models = [m.get("name", "") for m in res.json().get("models", [])]
-            if not any(EMBED_MODEL in m for m in models):
-                return False, f"Model '{EMBED_MODEL}' not found. Run: ollama pull {EMBED_MODEL}"
-            return True, "ok"
-    except httpx.ConnectError:
-        return False, f"Cannot connect to Ollama at {OLLAMA_URL}"
+        await openai_client.models.list()
+        return True, "ok"
     except Exception as e:
         return False, str(e)
 
 
 async def get_embedding(text: str) -> list[float]:
-    async with httpx.AsyncClient(timeout=60) as client:
-        res = await client.post(f"{OLLAMA_URL}/api/embeddings", json={
-            "model": EMBED_MODEL,
-            "prompt": text,
-        })
-        res.raise_for_status()
-        emb = res.json().get("embedding")
-        if not emb:
-            raise ValueError("Empty embedding returned")
-        return emb
+    res = await openai_client.embeddings.create(model=EMBED_MODEL, input=text)
+    emb = res.data[0].embedding
+    if not emb:
+        raise ValueError("Empty embedding returned")
+    return emb
 
 
 def rerank_chunks(chunks: list[dict]) -> list[dict]:
@@ -256,7 +225,6 @@ def rerank_chunks(chunks: list[dict]) -> list[dict]:
 
 
 def diverse_retrieve(all_chunks: list[dict], top_k: int) -> list[dict]:
-    """Берёт лучший чанк из каждого файла, потом добирает до top_k."""
     best_per_file: dict[str, dict] = {}
     for c in all_chunks:
         fn = c["filename"]
@@ -279,42 +247,18 @@ def vector_store_info(user_id: int = 0) -> dict:
     with get_conn() as conn:
         with conn.cursor() as cur:
             if user_id > 0:
-                cur.execute(
-                    "SELECT COUNT(*) FROM document_chunks "
-                    "WHERE source_type != 'pending' AND user_id = %s",
-                    (user_id,)
-                )
+                cur.execute("SELECT COUNT(*) FROM document_chunks WHERE source_type != 'pending' AND user_id = %s", (user_id,))
                 total_chunks = cur.fetchone()[0]
-                cur.execute(
-                    "SELECT COUNT(DISTINCT filename) FROM document_chunks "
-                    "WHERE source_type != 'pending' AND filename IS NOT NULL "
-                    "AND user_id = %s",
-                    (user_id,)
-                )
+                cur.execute("SELECT COUNT(DISTINCT filename) FROM document_chunks WHERE source_type != 'pending' AND filename IS NOT NULL AND user_id = %s", (user_id,))
                 total_docs = cur.fetchone()[0]
-                cur.execute(
-                    "SELECT source_type, COUNT(*) FROM document_chunks "
-                    "WHERE source_type != 'pending' AND user_id = %s "
-                    "GROUP BY source_type",
-                    (user_id,)
-                )
-                by_type = {r[0]: r[1] for r in cur.fetchall()}
+                cur.execute("SELECT source_type, COUNT(*) FROM document_chunks WHERE source_type != 'pending' AND user_id = %s GROUP BY source_type", (user_id,))
             else:
-                cur.execute(
-                    "SELECT COUNT(*) FROM document_chunks "
-                    "WHERE source_type != 'pending'"
-                )
+                cur.execute("SELECT COUNT(*) FROM document_chunks WHERE source_type != 'pending'")
                 total_chunks = cur.fetchone()[0]
-                cur.execute(
-                    "SELECT COUNT(DISTINCT filename) FROM document_chunks "
-                    "WHERE source_type != 'pending' AND filename IS NOT NULL"
-                )
+                cur.execute("SELECT COUNT(DISTINCT filename) FROM document_chunks WHERE source_type != 'pending' AND filename IS NOT NULL")
                 total_docs = cur.fetchone()[0]
-                cur.execute(
-                    "SELECT source_type, COUNT(*) FROM document_chunks "
-                    "WHERE source_type != 'pending' GROUP BY source_type"
-                )
-                by_type = {r[0]: r[1] for r in cur.fetchall()}
+                cur.execute("SELECT source_type, COUNT(*) FROM document_chunks WHERE source_type != 'pending' GROUP BY source_type")
+            by_type = {r[0]: r[1] for r in cur.fetchall()}
     return {
         "total_chunks":    total_chunks,
         "total_documents": total_docs,
@@ -330,12 +274,15 @@ class RAGPipeline:
         return split_text(extract_text(filename, content))
 
     async def embed(self, chunks: list[str]) -> list[list[float]]:
-        # High parallelism for fast embedding generation
-        sem = asyncio.Semaphore(50)
-        async def embed_one(chunk: str) -> list[float]:
-            async with sem:
-                return await get_embedding(chunk)
-        return await asyncio.gather(*[embed_one(c) for c in chunks])
+        # OpenAI поддерживает batch до 2048 текстов за один запрос
+        BATCH = 512
+        results = []
+        for i in range(0, len(chunks), BATCH):
+            batch = chunks[i:i + BATCH]
+            res = await openai_client.embeddings.create(model=EMBED_MODEL, input=batch)
+            res.data.sort(key=lambda x: x.index)
+            results.extend([d.embedding for d in res.data])
+        return results
 
     async def store(self, filename: str, chunks: list[str],
                     embeddings: list[list[float]],
@@ -343,14 +290,10 @@ class RAGPipeline:
         init_vector_table()
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM document_chunks WHERE filename = %s AND user_id = %s",
-                    (filename, user_id)
-                )
+                cur.execute("DELETE FROM document_chunks WHERE filename = %s AND user_id = %s", (filename, user_id))
                 for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
                     cur.execute(
-                        "INSERT INTO document_chunks "
-                        "(user_id, filename, chunk_index, content, embedding, source_type) "
+                        "INSERT INTO document_chunks (user_id, filename, chunk_index, content, embedding, source_type) "
                         "VALUES (%s, %s, %s, %s, %s, %s)",
                         (user_id, filename, i, chunk, emb, source_type)
                     )
@@ -358,131 +301,27 @@ class RAGPipeline:
         return len(chunks)
 
     async def store_fast(self, filename: str, chunks: list[str],
-                     user_id: int = 0, source_type: str = "text") -> int:
+                         user_id: int = 0, source_type: str = "text") -> int:
         from psycopg2.extras import execute_values
-
         init_vector_table()
         with get_conn() as conn:
             with conn.cursor() as cur:
-                cur.execute(
-                    "DELETE FROM document_chunks WHERE filename = %s AND user_id = %s",
-                    (filename, user_id)
-                )
-                deleted = cur.rowcount
-                logger.info(f"Deleted {deleted} old chunks for {filename}")
-
-                rows = []
-                for i, chunk in enumerate(chunks):
-                    clean_chunk = "".join(
-                        char for char in chunk
-                        if char.isprintable() or char in ['\n', '\t', ' ']
-                    )
-                    rows.append((user_id, filename, i, clean_chunk, None, source_type))
-
-                execute_values(
-                    cur,
-                    "INSERT INTO document_chunks "
-                    "(user_id, filename, chunk_index, content, embedding, source_type) "
-                    "VALUES %s",
-                    rows
-                )
+                cur.execute("DELETE FROM document_chunks WHERE filename = %s AND user_id = %s", (filename, user_id))
+                rows = [
+                    (user_id, filename, i,
+                     "".join(c for c in chunk if c.isprintable() or c in ['\n', '\t', ' ']),
+                     None, source_type)
+                    for i, chunk in enumerate(chunks)
+                ]
+                execute_values(cur,
+                    "INSERT INTO document_chunks (user_id, filename, chunk_index, content, embedding, source_type) VALUES %s",
+                    rows)
             conn.commit()
         return len(chunks)
 
-    async def embed_one_batch(
-        self,
-        filename: str,
-        user_id: int = 0,
-        batch_size: int = 50,
-    ) -> dict:
-        """Embed ONE batch of chunks and return progress.
-
-        Called repeatedly by the frontend via /documents/embed-batch.
-        Each call embeds `batch_size` chunks (~1-2 seconds), well within
-        Vercel's 5-minute serverless timeout.
-
-        Returns: {"done": int, "total": int, "status": "indexing"|"done"}
-        """
-        from psycopg2.extras import execute_values
-
-        # Get total chunks for this file
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT COUNT(*) FROM document_chunks "
-                    "WHERE filename = %s AND user_id = %s",
-                    (filename, user_id)
-                )
-                total = cur.fetchone()[0]
-
-        if total == 0:
-            return {"done": 0, "total": 0, "status": "done"}
-
-        # Find chunks with embedding IS NULL (LIMIT batch_size)
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT chunk_index, content FROM document_chunks "
-                    "WHERE filename = %s AND user_id = %s AND embedding IS NULL "
-                    "ORDER BY chunk_index LIMIT %s",
-                    (filename, user_id, batch_size)
-                )
-                pending = cur.fetchall()
-
-        if not pending:
-            # All chunks are embedded
-            set_indexing_progress(user_id, filename, total, total, "done")
-            clear_indexing_progress(user_id, filename)
-            return {"done": total, "total": total, "status": "done"}
-
-        # Embed this batch (50 concurrent requests via Semaphore)
-        batch_indexes = [r[0] for r in pending]
-        batch_texts = [r[1] for r in pending]
-        batch_embeddings = await self.embed(batch_texts)
-
-        # Batch-write embeddings in a single execute_values call
-        rows = [
-            (emb, filename, user_id, idx)
-            for idx, emb in zip(batch_indexes, batch_embeddings)
-        ]
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                execute_values(
-                    cur,
-                    "UPDATE document_chunks SET embedding = v.emb "
-                    "FROM (VALUES %s) AS v(emb, filename, user_id, chunk_index) "
-                    "WHERE document_chunks.filename = v.filename "
-                    "AND document_chunks.user_id = v.user_id "
-                    "AND document_chunks.chunk_index = v.chunk_index",
-                    rows,
-                    template="(%s::vector, %s, %s, %s)",
-                )
-            conn.commit()
-
-        # Get updated progress
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT COUNT(*) FROM document_chunks "
-                    "WHERE filename = %s AND user_id = %s AND embedding IS NOT NULL",
-                    (filename, user_id)
-                )
-                done = cur.fetchone()[0]
-
-        status = "indexing" if done < total else "done"
-        set_indexing_progress(user_id, filename, total, done, status)
-
-        if done >= total:
-            clear_indexing_progress(user_id, filename)
-
-        logger.info(f"Embedded {done}/{total} chunks of {filename} for user {user_id}")
-        return {"done": done, "total": total, "status": status}
-
     async def retrieve(self, query: str, top_k: int = 10, user_id: int = 0) -> list[dict]:
-        # Get query embedding vector
-        emb = await get_embedding(query)
+        emb     = await get_embedding(query)
         fetch_k = max(top_k * 6, 60)
-
         with get_conn() as conn:
             with conn.cursor() as cur:
                 if user_id > 0:
@@ -491,8 +330,7 @@ class RAGPipeline:
                                1 - (embedding <=> %s::vector) AS similarity
                         FROM document_chunks
                         WHERE user_id = %s AND embedding IS NOT NULL
-                        ORDER BY embedding <=> %s::vector
-                        LIMIT %s
+                        ORDER BY embedding <=> %s::vector LIMIT %s
                     """, (emb, user_id, emb, fetch_k))
                 else:
                     cur.execute("""
@@ -500,120 +338,56 @@ class RAGPipeline:
                                1 - (embedding <=> %s::vector) AS similarity
                         FROM document_chunks
                         WHERE embedding IS NOT NULL
-                        ORDER BY embedding <=> %s::vector
-                        LIMIT %s
+                        ORDER BY embedding <=> %s::vector LIMIT %s
                     """, (emb, emb, fetch_k))
-
                 rows = cur.fetchall()
-
         if not rows:
-            keywords = set(query.lower().split())
-            with get_conn() as conn:
-                with conn.cursor() as cur:
-                    cur.execute("""
-                        SELECT filename, chunk_index, content, source_type
-                        FROM document_chunks
-                        WHERE user_id = %s AND embedding IS NULL
-                        LIMIT %s
-                    """, (user_id, fetch_k))
-                    rows = cur.fetchall()
-
-            # Score by keyword overlap
-            scored = []
-            for r in rows:
-                content_words = set(r[2].lower().split())
-                score = len(keywords & content_words)
-                if score > 0:
-                    scored.append({
-                        "filename": r[0], "chunk_index": r[1], "content": r[2],
-                        "source_type": r[3], "similarity": min(score * 0.1, 0.5)
-                    })
-            scored.sort(key=lambda x: x["similarity"], reverse=True)
-            # Apply RBAC filtering
-            try:
-                from rbac import rbac
-                filtered = rbac.filter_chunks_by_user(scored, user_id)
-                if not filtered:
-                    return []
-                scored = filtered
-            except ImportError:
-                pass
-            return rerank_chunks(scored[:top_k])
-
+            return []
         all_chunks = [
             {"filename": r[0], "chunk_index": r[1], "content": r[2],
              "source_type": r[3], "similarity": round(r[4], 4)}
             for r in rows
         ]
-        diverse = diverse_retrieve(all_chunks, top_k)
-        # Apply RBAC filtering
-        try:
-            from rbac import rbac
-            filtered = rbac.filter_chunks_by_user(diverse, user_id)
-            if not filtered:
-                return []
-            diverse = filtered
-        except ImportError:
-            pass
-        return rerank_chunks(diverse)
+        return rerank_chunks(diverse_retrieve(all_chunks, top_k))
 
     def augment_prompt(self, query: str, chunks: list[dict],
                        all_files: Optional[list[dict]] = None,
                        total_docs: int = 0, total_chunks: int = 0) -> str:
-
         if all_files:
             files_list = "\n".join(
-                f"  {i+1}. {f['filename']} ({f['chunk_count']} чанков, тип: {f['source_type']})"
+                f"  {i+1}. {f['filename']} ({f['chunk_count']} чанков)"
                 for i, f in enumerate(all_files)
             )
-            system_context = (
-                f"СПИСОК ФАЙЛОВ ({total_docs} файлов, {total_chunks} чанков) — "
-                f"используй этот список для ответа, не говори 'представлен выше':\n"
-                f"{files_list}\n"
-            )
+            system_context = f"ФАЙЛЫ В БАЗЕ ({total_docs} шт.):\n{files_list}\n"
         else:
-            system_context = f"Всего файлов в базе: {total_docs} | Всего чанков: {total_chunks}\n"
+            system_context = f"Файлов в базе: {total_docs} | Чанков: {total_chunks}\n"
 
-        # Контекст из релевантных чанков
         context = "\n\n".join(
-            f"[Файл: {c['filename']} | Чанк: {c['chunk_index']} | Схожесть: {c['similarity']}]\n{c['content']}"
+            f"[{c['filename']} | чанк {c['chunk_index']}]\n{c['content']}"
             for c in chunks
         )
-
         return (
-            f"Ты — умный ИИ-ассистент базы знаний DocRAG. Отвечай строго по документам.\n\n"
+            f"Ты — умный ИИ-ассистент базы знаний. Отвечай на русском языке.\n\n"
             f"ПРАВИЛА:\n"
-            f"1. Отвечай ТОЛЬКО на основе документов. Если ответа нет — честно скажи.\n"
-            f"2. НЕ выдумывай факты которых нет в документах.\n"
-            f"3. Отвечай на русском языке, развёрнуто и по делу.\n"
-            f"ОТВЕЧАЙ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ. НИ ОДНОГО СЛОВА НА ДРУГОМ ЯЗЫКЕ.\n\n"
-            f"4. Используй Markdown: **жирный**, ## заголовки, - списки.\n"
-            f"5. Вопросы про количество или список файлов — отвечай по ПОЛНОМУ СПИСКУ выше.\n"
-            f"6. НИКОГДА не пиши 'представлен выше', 'указан выше', 'см. выше' — всегда давай конкретный ответ.\n"
-            f"7. При вопросе 'расскажи про каждый файл' — опиши КАЖДЫЙ файл из полного списка.\n\n"
+            f"1. Используй документы как основу, рассуждай самостоятельно, делай выводы.\n"
+            f"2. На вопросы про количество/список файлов — отвечай по ПОЛНОМУ СПИСКУ выше.\n"
+            f"3. Используй Markdown: **жирный**, ## заголовки, - списки.\n"
+            f"4. Никогда не пиши 'представлен выше' — давай конкретный ответ.\n\n"
             f"{'='*50}\n"
             f"{system_context}"
             f"{'='*50}\n\n"
-            f"РЕЛЕВАНТНЫЕ ФРАГМЕНТЫ ПО ЗАПРОСУ:\n{context}\n\n"
-            f"ВОПРОС ПОЛЬЗОВАТЕЛЯ: {query}\n\n"
-            f"ОТВЕТ:"
+            f"ФРАГМЕНТЫ ПО ЗАПРОСУ:\n{context}\n\n"
+            f"ВОПРОС: {query}\n\nОТВЕТ:"
         )
 
     async def generate(self, prompt: str) -> str:
-        async with httpx.AsyncClient(timeout=180) as client:
-            res = await client.post(f"{OLLAMA_URL}/api/generate", json={
-                "model": LLM_MODEL,
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "temperature": 0.7,
-                    "num_predict": 2048,
-                    "top_p": 0.95,
-                    "repeat_penalty": 1.1,
-                },
-            })
-            res.raise_for_status()
-            return res.json()["response"].strip()
+        res = await openai_client.chat.completions.create(
+            model=LLM_MODEL,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.7,
+            max_tokens=2048,
+        )
+        return res.choices[0].message.content.strip()
 
     async def evaluate(self, query: str, answer: str) -> float:
         try:
@@ -624,19 +398,13 @@ class RAGPipeline:
             return 0.0
 
     async def run(self, query: str, top_k: int = 10, user_id: int = 0) -> dict:
-        greetings = [
-            'привет', 'hello', 'hi', 'здравствуй', 'здравствуйте',
-            'добрый день', 'добрый вечер', 'доброе утро', 'хай', 'салют'
-        ]
+        greetings = ['привет', 'hello', 'hi', 'здравствуй', 'здравствуйте',
+                     'добрый день', 'добрый вечер', 'доброе утро', 'хай', 'салют']
         if query.lower().strip().rstrip('!.,') in greetings:
             return {
                 "query": query,
-                "answer": (
-                    "Привет! Я готов помочь. Задайте вопрос по документам "
-                    "из базы знаний — найду точный ответ с источниками."
-                ),
-                "sources": [],
-                "cosine_similarity": 1.0,
+                "answer": "Привет! Я готов помочь. Задайте любой вопрос — отвечу по документам из базы знаний или из своих знаний.",
+                "sources": [], "cosine_similarity": 1.0,
             }
 
         info      = vector_store_info(user_id)
@@ -644,22 +412,17 @@ class RAGPipeline:
         chunks    = await self.retrieve(query, top_k, user_id)
 
         if not chunks:
-            return {
-                "query":             query,
-                "answer":            (
-                    "По вашему запросу ничего не найдено в базе знаний. "
-                    "Попробуйте переформулировать вопрос."
-                ),
-                "sources":           [],
-                "cosine_similarity": 0.0,
-            }
+            prompt = (
+                f"Ты — умный ассистент. Отвечай развёрнуто и полезно на любой вопрос.\n"
+                f"Если вопрос про количество файлов или документов — скажи что база знаний пуста.\n\n"
+                f"Вопрос: {query}\n\nОтвет:"
+            )
+            answer = await self.generate(prompt)
+            return {"query": query, "answer": answer, "sources": [], "cosine_similarity": 0.0}
 
-        prompt = self.augment_prompt(
-            query, chunks,
-            all_files=all_files,
-            total_docs=info["total_documents"],
-            total_chunks=info["total_chunks"],
-        )
+        prompt = self.augment_prompt(query, chunks, all_files=all_files,
+                                     total_docs=info["total_documents"],
+                                     total_chunks=info["total_chunks"])
         answer = await self.generate(prompt)
         score  = await self.evaluate(query, answer)
 
@@ -667,31 +430,19 @@ class RAGPipeline:
             "query":  query,
             "answer": answer,
             "sources": [
-                {
-                    "filename":     c["filename"],
-                    "chunk_index":  c["chunk_index"],
-                    "similarity":   c["similarity"],
-                    "rerank_score": c.get("rerank_score"),
-                }
+                {"filename": c["filename"], "chunk_index": c["chunk_index"],
+                 "similarity": c["similarity"], "rerank_score": c.get("rerank_score")}
                 for c in chunks
             ],
-
             "source_chunks": [
-                {
-                    "filename":   c["filename"],
-                    "content":    c["content"][:500],
-                    "similarity": c["similarity"],
-                }
+                {"filename": c["filename"], "content": c["content"][:500], "similarity": c["similarity"]}
                 for c in chunks
             ],
-
             "cosine_similarity": score,
         }
 
-pipeline = RAGPipeline()
 
-# Progress tracking is persisted in the DB so it survives F5 / server restarts.
-# Table: indexing_jobs (user_id, filename, total_chunks, done_chunks, status, updated_at)
+pipeline = RAGPipeline()
 
 
 def _ensure_indexing_table():
@@ -712,32 +463,22 @@ def _ensure_indexing_table():
 
 
 def get_indexing_progress(user_id: int = 0) -> dict:
-    """Return current indexing progress for a user, persisted in DB."""
     try:
         _ensure_indexing_table()
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT filename, total_chunks, done_chunks, status "
-                    "FROM indexing_jobs WHERE user_id = %s "
-                    "AND status IN ('indexing','error')",
+                    "FROM indexing_jobs WHERE user_id = %s AND status IN ('indexing','error')",
                     (user_id,)
                 )
                 rows = cur.fetchall()
-        return {
-            r[0]: {
-                "total": r[1],
-                "done": r[2],
-                "status": r[3],
-            }
-            for r in rows
-        }
+        return {r[0]: {"total": r[1], "done": r[2], "status": r[3]} for r in rows}
     except Exception:
         return {}
 
 
 def set_indexing_progress(user_id: int, filename: str, total: int, done: int, status: str = "indexing"):
-    """Persist indexing progress to DB (survives F5 / restart)."""
     try:
         _ensure_indexing_table()
         with get_conn() as conn:
@@ -745,8 +486,7 @@ def set_indexing_progress(user_id: int, filename: str, total: int, done: int, st
                 cur.execute("""
                     INSERT INTO indexing_jobs (user_id, filename, total_chunks, done_chunks, status, updated_at)
                     VALUES (%s, %s, %s, %s, %s, now())
-                    ON CONFLICT (user_id, filename)
-                    DO UPDATE SET
+                    ON CONFLICT (user_id, filename) DO UPDATE SET
                         total_chunks = EXCLUDED.total_chunks,
                         done_chunks  = EXCLUDED.done_chunks,
                         status       = EXCLUDED.status,
@@ -758,14 +498,12 @@ def set_indexing_progress(user_id: int, filename: str, total: int, done: int, st
 
 
 def clear_indexing_progress(user_id: int, filename: str):
-    """Mark progress as done so it stops showing."""
     try:
         _ensure_indexing_table()
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE indexing_jobs SET status = 'done' "
-                    "WHERE user_id = %s AND filename = %s",
+                    "UPDATE indexing_jobs SET status = 'done' WHERE user_id = %s AND filename = %s",
                     (user_id, filename)
                 )
             conn.commit()
@@ -790,17 +528,12 @@ async def generate_answer(query: str, top_k: int = 10, user_id: int = 0) -> dict
 
 
 def simple_rag(query: str, top_k: int = 5, user_id: int = 0) -> list[dict]:
-    # No valid user - return empty (orphaned files are hidden)
     if user_id <= 0:
         return []
-
     keywords = set(query.lower().split())
     with get_conn() as conn:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT filename, chunk_index, content FROM document_chunks
-                WHERE user_id = %s
-            """, (user_id,))
+            cur.execute("SELECT filename, chunk_index, content FROM document_chunks WHERE user_id = %s", (user_id,))
             rows = cur.fetchall()
     scored = [
         {"filename": fn, "chunk_index": ci, "content": ct,
@@ -812,9 +545,9 @@ def simple_rag(query: str, top_k: int = 5, user_id: int = 0) -> list[dict]:
     return scored[:top_k]
 
 
-async def modular_rag(query: str, top_k: int = 5) -> list[dict]:
-    keyword_results = simple_rag(query, top_k)
-    vector_results  = await search_documents(query, top_k)
+async def modular_rag(query: str, top_k: int = 5, user_id: int = 0) -> list[dict]:
+    keyword_results = simple_rag(query, top_k, user_id)
+    vector_results  = await search_documents(query, top_k, user_id)
     seen, merged    = set(), []
     for r in keyword_results + vector_results:
         key = (r["filename"], r["chunk_index"])
@@ -822,10 +555,3 @@ async def modular_rag(query: str, top_k: int = 5) -> list[dict]:
             seen.add(key)
             merged.append(r)
     return merged[:top_k]
-
-
-
-
-
-
-

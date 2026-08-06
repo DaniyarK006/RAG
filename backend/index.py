@@ -3,9 +3,7 @@ import re
 import asyncio
 from collections import defaultdict
 
-from rag import get_conn, get_embedding, cosine_similarity, RAGPipeline
-
-_pipeline = RAGPipeline()
+from rag import get_conn, get_embedding, cosine_similarity, RAGPipeline, pipeline as _pipeline
 
 
 def _all_chunks_balanced(chunks_per_file: int = 3) -> list[dict]:
