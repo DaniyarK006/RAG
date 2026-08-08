@@ -166,7 +166,7 @@ function VectorPanel({ storeInfo }) {
 function ModelPanel({ storeInfo }) {
   const rows = [
     ['model',         storeInfo?.embed_model || '-'],
-    ['provider',      'Ollama · local'],
+    ['provider',      'OpenAI · cloud'],
     ['embedding dim', String(storeInfo?.embedding_dim || 1024)],
     ['chunk size',    '1500 chars'],
     ['chunk overlap', '200 chars'],

@@ -300,6 +300,55 @@ class RAGPipeline:
             conn.commit()
         return len(chunks)
 
+    async def embed_one_batch(self, filename: str, user_id: int = 0, batch_size: int = 50) -> dict:
+        """Embed one batch of un-embedded chunks. Called repeatedly by frontend."""
+        from psycopg2.extras import execute_values
+        _ensure_indexing_table()
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT id, content FROM document_chunks "
+                    "WHERE filename = %s AND user_id = %s AND embedding IS NULL "
+                    "ORDER BY chunk_index LIMIT %s",
+                    (filename, user_id, batch_size)
+                )
+                rows = cur.fetchall()
+                cur.execute(
+                    "SELECT COUNT(*) FROM document_chunks WHERE filename = %s AND user_id = %s",
+                    (filename, user_id)
+                )
+                total = cur.fetchone()[0]
+                cur.execute(
+                    "SELECT COUNT(*) FROM document_chunks WHERE filename = %s AND user_id = %s AND embedding IS NOT NULL",
+                    (filename, user_id)
+                )
+                done_before = cur.fetchone()[0]
+
+        if not rows:
+            clear_indexing_progress(user_id, filename)
+            return {"filename": filename, "total": total, "done": total, "status": "done"}
+
+        ids, texts = zip(*rows)
+        embeddings = await self.embed(list(texts))
+
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                execute_values(
+                    cur,
+                    "UPDATE document_chunks SET embedding = data.emb::vector "
+                    "FROM (VALUES %s) AS data(id, emb) WHERE document_chunks.id = data.id",
+                    [(ids[i], str(embeddings[i])) for i in range(len(ids))]
+                )
+            conn.commit()
+
+        done_now = done_before + len(ids)
+        remaining = total - done_now
+        status = "done" if remaining <= 0 else "indexing"
+        set_indexing_progress(user_id, filename, total, done_now, status)
+        if status == "done":
+            clear_indexing_progress(user_id, filename)
+        return {"filename": filename, "total": total, "done": done_now, "status": status}
+
     async def store_fast(self, filename: str, chunks: list[str],
                          user_id: int = 0, source_type: str = "text") -> int:
         from psycopg2.extras import execute_values
