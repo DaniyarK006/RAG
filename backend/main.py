@@ -436,7 +436,7 @@ async def embed_batch(body: dict):
         except Exception:
             raise HTTPException(status.HTTP_401_UNAUTHORIZED, "Invalid token")
 
-    result = await pipeline.embed_one_batch(filename, user_id, batch_size=50)
+    result = await pipeline.embed_one_batch(filename, user_id, batch_size=512)
     return result
 
 
