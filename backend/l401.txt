@@ -1,0 +1,1 @@
+'        loop = asyncio.get_event_loop()`n        chunks = await loop.run_in_executor(None, pipeline.prepare, filename, content)\r\n'

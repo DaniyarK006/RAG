@@ -122,6 +122,14 @@ def extract_text(filename: str, content: bytes) -> str:
     ext = filename.rsplit(".", 1)[-1].lower()
     if ext == "pdf":
         try:
+            import fitz
+            doc = fitz.open(stream=io.BytesIO(content), filetype="pdf")
+            text = "\n".join(page.get_text() for page in doc)
+            doc.close()
+            return "".join(c for c in text if c.isprintable() or c in ['\n', '\t', ' '])
+        except ImportError:
+            pass
+        try:
             import pypdf
             reader = pypdf.PdfReader(io.BytesIO(content))
             text = "\n".join(page.extract_text() or "" for page in reader.pages)
@@ -301,8 +309,8 @@ class RAGPipeline:
         return len(chunks)
 
     async def embed_all(self, filename: str, user_id: int = 0) -> None:
-        """Embed ALL chunks of a file in parallel OpenAI batches. Fire-and-forget."""
-        from psycopg2.extras import execute_values
+        """Embed ALL chunks in parallel OpenAI batches + bulk UPDATE via execute_batch."""
+        from psycopg2.extras import execute_batch
         _ensure_indexing_table()
         try:
             with get_conn() as conn:
@@ -323,24 +331,24 @@ class RAGPipeline:
                 return
             ids   = [r[0] for r in rows]
             texts = [r[1] for r in rows]
-            # Split into parallel batches of 512, run concurrently
+            # All batches fired concurrently — one round-trip per 512 chunks
             BATCH = 512
             batches = [texts[i:i+BATCH] for i in range(0, len(texts), BATCH)]
             results = await asyncio.gather(*[
                 openai_client.embeddings.create(model=EMBED_MODEL, input=b) for b in batches
             ])
-            embeddings = []
+            embeddings: list[list[float]] = []
             for res in results:
                 res.data.sort(key=lambda x: x.index)
                 embeddings.extend([d.embedding for d in res.data])
+            # Bulk UPDATE: pass list[float] directly, pgvector accepts it
             with get_conn() as conn:
                 with conn.cursor() as cur:
-                    execute_values(
+                    execute_batch(
                         cur,
-                        "UPDATE document_chunks SET embedding = data.emb::vector "
-                        "FROM (VALUES %s) AS data(id, emb) "
-                        "WHERE document_chunks.id = data.id",
-                        [(ids[i], str(embeddings[i])) for i in range(len(ids))]
+                        "UPDATE document_chunks SET embedding = %s::vector WHERE id = %s",
+                        [(embeddings[i], ids[i]) for i in range(len(ids))],
+                        page_size=200
                     )
                 conn.commit()
             set_indexing_progress(user_id, filename, total, total, "done")

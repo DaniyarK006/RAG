@@ -1,0 +1,3 @@
+  asyncio.create_task(pipeline.embed_all(file.filename, user_id))
+
+   

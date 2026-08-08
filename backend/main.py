@@ -347,7 +347,7 @@ async def upload_document(file: UploadFile = File(...), token: str = ""):
 
         # Mark file as needing embedding (progress persisted in DB)
         set_indexing_progress(user_id, file.filename, chunk_count, 0, "indexing")
-        asyncio.create_task(pipeline.embed_all(file.filename, user_id))
+        await pipeline.embed_all(file.filename, user_id)
 
         return {
             "filename": file.filename,
@@ -398,19 +398,17 @@ async def process_uploaded(body: dict):
     source_type = ext if ext in ("pdf", "docx", "txt") else "text"
 
     try:
-        chunks = pipeline.prepare(filename, content)
+        loop = asyncio.get_event_loop()
+        chunks = await loop.run_in_executor(None, pipeline.prepare, filename, content)
         chunk_count = await pipeline.store_fast(filename, chunks, user_id, source_type)
-
-        # Mark file as needing embedding (progress persisted in DB)
         set_indexing_progress(user_id, filename, chunk_count, 0, "indexing")
-
+        await pipeline.embed_all(filename, user_id)
         return {
             "filename": filename,
             "chunks": chunk_count,
             "source_type": source_type,
             "status": "done",
-            "needs_embedding": True,
-            "message": "File stored, embedding in progress"
+            "needs_embedding": False,
         }
     except Exception as e:
         logger.error(f"Process uploaded error for {filename}: {e}\n{traceback.format_exc()}")
