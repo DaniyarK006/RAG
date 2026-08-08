@@ -1,9 +1,8 @@
 import base64
-import httpx
 import os
-from rag import get_conn, get_embedding, cosine_similarity, RAGPipeline, OLLAMA_URL, LLM_MODEL
+from rag import get_conn, get_embedding, cosine_similarity, RAGPipeline, openai_client
 
-VISION_MODEL = os.getenv("VISION_MODEL", "llava:7b")
+VISION_MODEL = os.getenv("VISION_MODEL", "gpt-4o-mini")
 
 IMAGE_EXTS = {"jpg", "jpeg", "png", "gif", "bmp", "webp"}
 
@@ -16,20 +15,17 @@ def is_image(filename: str) -> bool:
 
 async def describe_image(image_bytes: bytes, filename: str) -> str:
     b64 = base64.b64encode(image_bytes).decode()
-    async with httpx.AsyncClient(timeout=120) as client:
-        res = await client.post(f"{OLLAMA_URL}/api/generate", json={
-            "model": VISION_MODEL,
-            "prompt": (
-                "Describe this image in detail. "
-                "Extract all visible text, objects, diagrams, charts, tables and their contents. "
-                "Be thorough and precise."
-            ),
-            "images": [b64],
-            "stream": False,
-            "options": {"temperature": 0.1},
-        })
-        res.raise_for_status()
-        return res.json()["response"].strip()
+    ext = filename.rsplit(".", 1)[-1].lower()
+    mime = "image/jpeg" if ext in {"jpg", "jpeg"} else f"image/{ext}"
+    res = await openai_client.chat.completions.create(
+        model=VISION_MODEL,
+        messages=[{"role": "user", "content": [
+            {"type": "text", "text": "Describe this image in detail. Extract all visible text, objects, diagrams, charts, tables and their contents. Be thorough and precise."},
+            {"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}},
+        ]}],
+        max_tokens=1024,
+    )
+    return res.choices[0].message.content.strip()
 
 
 async def ingest_image(filename: str, image_bytes: bytes) -> dict:
@@ -132,4 +128,5 @@ async def get_dataset_stats() -> dict:
         "total_chunks": sum(v["chunks"] for v in stats.values()),
         "total_documents": sum(v["documents"] for v in stats.values()),
         "vision_model": VISION_MODEL,
+
     }
