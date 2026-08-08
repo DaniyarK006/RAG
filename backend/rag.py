@@ -300,6 +300,55 @@ class RAGPipeline:
             conn.commit()
         return len(chunks)
 
+    async def embed_all(self, filename: str, user_id: int = 0) -> None:
+        """Embed ALL chunks of a file in parallel OpenAI batches. Fire-and-forget."""
+        from psycopg2.extras import execute_values
+        _ensure_indexing_table()
+        try:
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT id, content FROM document_chunks "
+                        "WHERE filename = %s AND user_id = %s AND embedding IS NULL ORDER BY chunk_index",
+                        (filename, user_id)
+                    )
+                    rows = cur.fetchall()
+                    cur.execute(
+                        "SELECT COUNT(*) FROM document_chunks WHERE filename = %s AND user_id = %s",
+                        (filename, user_id)
+                    )
+                    total = cur.fetchone()[0]
+            if not rows:
+                clear_indexing_progress(user_id, filename)
+                return
+            ids   = [r[0] for r in rows]
+            texts = [r[1] for r in rows]
+            # Split into parallel batches of 512, run concurrently
+            BATCH = 512
+            batches = [texts[i:i+BATCH] for i in range(0, len(texts), BATCH)]
+            results = await asyncio.gather(*[
+                openai_client.embeddings.create(model=EMBED_MODEL, input=b) for b in batches
+            ])
+            embeddings = []
+            for res in results:
+                res.data.sort(key=lambda x: x.index)
+                embeddings.extend([d.embedding for d in res.data])
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    execute_values(
+                        cur,
+                        "UPDATE document_chunks SET embedding = data.emb::vector "
+                        "FROM (VALUES %s) AS data(id, emb) "
+                        "WHERE document_chunks.id = data.id",
+                        [(ids[i], str(embeddings[i])) for i in range(len(ids))]
+                    )
+                conn.commit()
+            set_indexing_progress(user_id, filename, total, total, "done")
+            clear_indexing_progress(user_id, filename)
+        except Exception as e:
+            logger.error(f"embed_all error for {filename}: {e}")
+            set_indexing_progress(user_id, filename, 0, 0, "error")
+
     async def embed_one_batch(self, filename: str, user_id: int = 0, batch_size: int = 50) -> dict:
         """Embed one batch of un-embedded chunks. Called repeatedly by frontend."""
         from psycopg2.extras import execute_values

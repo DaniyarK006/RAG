@@ -340,12 +340,14 @@ async def upload_document(file: UploadFile = File(...), token: str = ""):
     source_type = ext.lower() if ext.lower() in ("pdf", "docx", "txt") else "text"
 
     try:
-        chunks = pipeline.prepare(file.filename, content)
+        loop = asyncio.get_event_loop()
+        chunks = await loop.run_in_executor(None, pipeline.prepare, file.filename, content)
         chunk_count = await pipeline.store_fast(file.filename, chunks, user_id, source_type)
         update_upload_job(job_id, "done", chunk_count)
 
         # Mark file as needing embedding (progress persisted in DB)
         set_indexing_progress(user_id, file.filename, chunk_count, 0, "indexing")
+        asyncio.create_task(pipeline.embed_all(file.filename, user_id))
 
         return {
             "filename": file.filename,
