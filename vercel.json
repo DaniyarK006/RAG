@@ -1,25 +1,28 @@
 {
-  "services": {
-    "frontend": {
-      "root": "frontend",
-      "framework": "vite"
+  "version": 2,
+  "builds": [
+    {
+      "src": "backend/api/index.py",
+      "use": "@vercel/python",
+      "config": { "maxLambdaSize": "50mb" }
     },
-    "backend": {
-      "root": "backend",
-      "entrypoint": "main.py"
+    {
+      "src": "frontend/package.json",
+      "use": "@vercel/static-build",
+      "config": { "distDir": "dist" }
     }
-  },
-  "rewrites": [
-    { "source": "/auth(/.*)?", "destination": { "type": "service", "service": "backend" } },
-    { "source": "/documents(/.*)?", "destination": { "type": "service", "service": "backend" } },
-    { "source": "/api(/.*)?", "destination": { "type": "service", "service": "backend" } },
-    { "source": "/health(/.*)?", "destination": { "type": "service", "service": "backend" } },
-    { "source": "/index(/.*)?", "destination": { "type": "service", "service": "backend" } },
-    { "source": "/adaptive(/.*)?", "destination": { "type": "service", "service": "backend" } },
-    { "source": "/multimodal(/.*)?", "destination": { "type": "service", "service": "backend" } },
-    { "source": "/debug(/.*)?", "destination": { "type": "service", "service": "backend" } },
-    { "source": "/graph(/.*)?", "destination": { "type": "service", "service": "backend" } },
-    { "source": "/ws(/.*)?", "destination": { "type": "service", "service": "backend" } },
-    { "source": "/(.*)", "destination": { "type": "service", "service": "frontend" } }
+  ],
+  "routes": [
+    { "src": "/auth/(.*)", "dest": "backend/api/index.py" },
+    { "src": "/documents/(.*)", "dest": "backend/api/index.py" },
+    { "src": "/documents", "dest": "backend/api/index.py" },
+    { "src": "/api/(.*)", "dest": "backend/api/index.py" },
+    { "src": "/health/(.*)", "dest": "backend/api/index.py" },
+    { "src": "/health", "dest": "backend/api/index.py" },
+    { "src": "/index/(.*)", "dest": "backend/api/index.py" },
+    { "src": "/adaptive/(.*)", "dest": "backend/api/index.py" },
+    { "src": "/multimodal/(.*)", "dest": "backend/api/index.py" },
+    { "src": "/debug/(.*)", "dest": "backend/api/index.py" },
+    { "src": "/(.*)", "dest": "frontend/$1" }
   ]
 }
