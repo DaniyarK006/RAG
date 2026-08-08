@@ -11,9 +11,11 @@ from models import RegisterRequest, LoginRequest, TokenResponse, UserResponse, F
 from auth import hash_password, verify_password, create_token, decode_token
 from rag import (ingest_document, search_documents, generate_answer, simple_rag,
                  modular_rag, vector_store_info, init_vector_table, get_embedding,
-                 get_conn, pipeline, OLLAMA_URL, LLM_MODEL, check_ollama_health,
+                 get_conn, pipeline, check_ollama_health,
                  get_indexing_progress, init_upload_jobs_table, create_upload_job, update_upload_job, get_recent_jobs,
                  set_indexing_progress, clear_indexing_progress)
+OLLAMA_URL = ""
+LLM_MODEL  = os.getenv("LLM_MODEL", "gpt-4o-mini")
 from index import vector_index, tree_index, list_index, keyword_index, compare_indexes
 from multimodal import is_image, ingest_image, multimodal_answer, summarize_multimodal, get_dataset_stats, multimodal_retrieve
 from adaptive import adaptive_rag, AdaptiveRAG, init_adaptive_tables
@@ -87,12 +89,8 @@ app = FastAPI(title="DocRAG", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        os.getenv("FRONTEND_URL", "http://localhost:5173"),
-    ],
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
