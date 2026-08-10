@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-EMBED_MODEL    = os.getenv("EMBED_MODEL", "text-embedding-3-small")
-LLM_MODEL      = os.getenv("LLM_MODEL", "gpt-4o-mini")
+EMBED_MODEL    = "text-embedding-3-small"   # OpenAI — всегда доступна на Vercel
+LLM_MODEL      = "gpt-4o-mini"              # OpenAI — всегда доступна на Vercel
 CHUNK_SIZE     = 1500
 CHUNK_OVERLAP  = 150
 EMBEDDING_DIM  = 1536
@@ -467,34 +467,29 @@ class RAGPipeline:
                 f"  {i+1}. {f['filename']} ({f['chunk_count']} чанков)"
                 for i, f in enumerate(all_files)
             )
-            system_context = f"ФАЙЛЫ В БАЗЕ ({total_docs} шт.):\n{files_list}\n"
+            files_ctx = f"\nФайлы в базе ({total_docs} шт.):\n{files_list}\n"
         else:
-            system_context = f"Файлов в базе: {total_docs} | Чанков: {total_chunks}\n"
+            files_ctx = f"\nФайлов: {total_docs}, чанков: {total_chunks}\n"
 
         context = "\n\n".join(
-            f"[{c['filename']} | чанк {c['chunk_index']}]\n{c['content']}"
+            f"[Файл: {c['filename']} | чанк {c['chunk_index']}]\n{c['content']}"
             for c in chunks
         )
         return (
-            f"Ты — умный универсальный ИИ-ассистент базы знаний. Отвечай на русском языке.\n\n"
-            f"ПРАВИЛА:\n"
-            f"1. Если в документах есть ответ — используй их как основу, дополняй своими знаниями.\n"
-            f"2. Если в документах нет ответа — отвечай из своих знаний, не говори что не можешь помочь.\n"
-            f"3. На вопросы про количество/список файлов — отвечай по ПОЛНОМУ СПИСКУ выше.\n"
-            f"4. Используй Markdown: **жирный**, ## заголовки, - списки.\n"
-            f"5. Никогда не пиши 'представлен выше' — давай конкретный ответ.\n\n"
-            f"{'='*50}\n"
-            f"{system_context}"
-            f"{'='*50}\n\n"
-            f"ФРАГМЕНТЫ ПО ЗАПРОСУ:\n{context}\n\n"
-            f"ВОПРОС: {query}\n\nОТВЕТ:"
+            f"{files_ctx}\n"
+            f"Релевантные фрагменты документов:\n{context}\n\n"
+            f"Вопрос пользователя: {query}"
         )
 
-    async def generate(self, prompt: str) -> str:
+    async def generate(self, prompt: str, system: str = "") -> str:
         client = _get_openai_client()
+        messages = []
+        if system:
+            messages.append({"role": "system", "content": system})
+        messages.append({"role": "user", "content": prompt})
         res = await client.chat.completions.create(
             model=LLM_MODEL,
-            messages=[{"role": "user", "content": prompt}],
+            messages=messages,
             temperature=0.7,
             max_tokens=2048,
         )
@@ -509,6 +504,14 @@ class RAGPipeline:
             return 0.0
 
     async def run(self, query: str, top_k: int = 10, user_id: int = 0) -> dict:
+        SYSTEM = (
+            "Ты — умный, дружелюбный ИИ-ассистент сервиса DocRAG. "
+            "Отвечай на русском языке, развёрнуто, точно и полезно. "
+            "Если вопрос касается документов — используй их как основу. "
+            "Если вопрос общий (наука, жизнь, технологии, любая тема) — отвечай из своих знаний, не отказывайся. "
+            "Используй Markdown для форматирования. Никогда не говори 'я не могу' — всегда давай полезный ответ."
+        )
+
         greetings = ['привет', 'hello', 'hi', 'здравствуй', 'здравствуйте',
                      'добрый день', 'добрый вечер', 'доброе утро', 'хай', 'салют']
         if query.lower().strip().rstrip('!.,') in greetings:
@@ -523,19 +526,14 @@ class RAGPipeline:
         chunks    = await self.retrieve(query, top_k, user_id)
 
         if not chunks:
-            prompt = (
-                f"Ты — умный универсальный ИИ-ассистент. Отвечай развёрнуто, полезно и точно на русском языке.\n"
-                f"База знаний пуста или не содержит релевантных документов по этому вопросу.\n"
-                f"Отвечай из своих знаний — не говори что не можешь помочь.\n\n"
-                f"Вопрос: {query}\n\nОтвет:"
-            )
-            answer = await self.generate(prompt)
+            # Нет документов — отвечаем из общих знаний
+            answer = await self.generate(query, system=SYSTEM)
             return {"query": query, "answer": answer, "sources": [], "cosine_similarity": 0.0}
 
         prompt = self.augment_prompt(query, chunks, all_files=all_files,
                                      total_docs=info["total_documents"],
                                      total_chunks=info["total_chunks"])
-        answer = await self.generate(prompt)
+        answer = await self.generate(prompt, system=SYSTEM)
         score  = await self.evaluate(query, answer)
 
         return {
