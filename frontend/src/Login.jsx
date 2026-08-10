@@ -1,6 +1,6 @@
 import React, { useState } from 'react'
 
-const API = ''
+const API = import.meta.env.VITE_API_URL || ''
 
 const GoogleIcon = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">

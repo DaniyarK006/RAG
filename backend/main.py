@@ -14,7 +14,7 @@ from rag import (ingest_document, search_documents, generate_answer, simple_rag,
                  get_conn, pipeline, check_ollama_health,
                  get_indexing_progress, init_upload_jobs_table, create_upload_job, update_upload_job, get_recent_jobs,
                  set_indexing_progress, clear_indexing_progress)
-OLLAMA_URL = ""
+OLLAMA_URL = os.getenv("OLLAMA_URL", "")
 LLM_MODEL  = os.getenv("LLM_MODEL", "gpt-4o-mini")
 from index import vector_index, tree_index, list_index, keyword_index, compare_indexes
 from multimodal import is_image, ingest_image, multimodal_answer, summarize_multimodal, get_dataset_stats, multimodal_retrieve

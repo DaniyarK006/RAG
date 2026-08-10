@@ -22,6 +22,7 @@
     { "src": "/index/(.*)", "dest": "backend/api/index.py" },
     { "src": "/adaptive/(.*)", "dest": "backend/api/index.py" },
     { "src": "/multimodal/(.*)", "dest": "backend/api/index.py" },
+    { "src": "/graph/(.*)", "dest": "backend/api/index.py" },
     { "src": "/debug/(.*)", "dest": "backend/api/index.py" },
     { "src": "/(.*)", "dest": "frontend/$1" }
   ]

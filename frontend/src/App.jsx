@@ -10,7 +10,7 @@ import folderIcon from './assets/azure_windows_blue_folder_folder_icon_250618.pn
 import chatIcon from './assets/chat-31_icon-icons.com_65948.png'
 import docsIcon from './assets/search_page_document_16683.png'
 
-const API = ''
+const API = import.meta.env.VITE_API_URL || ''
 
 const INDEX_TYPES = [
   { id: 'auto',    label: 'Авто',     icon: folderIcon },
@@ -414,23 +414,26 @@ function getAuthToken() {
 
 export default function App() {
   const [user, setUser] = useState(() => {
-  const stored = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser')
-  if (stored) return stored
-    
-    if (stored && !token) {
-      localStorage.removeItem('currentUser')
-      sessionStorage.removeItem('currentUser')
-      return null
+    const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken')
+    const stored = localStorage.getItem('currentUser') || sessionStorage.getItem('currentUser')
+
+    if (token && stored) return { username: stored, token }
+
+    if (token && !stored) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]))
+        const name = payload.username || payload.sub || 'User'
+        localStorage.setItem('currentUser', name)
+        return { username: name, token }
+      } catch {}
     }
-    
-    if (stored) return { username: stored, token }
-    
+
     const params = new URLSearchParams(window.location.search)
     const urlToken = params.get('token')
     if (urlToken) {
       try {
         const payload = JSON.parse(atob(urlToken.split('.')[1]))
-        const name = payload.username || payload.sub
+        const name = payload.username || payload.sub || 'User'
         localStorage.setItem('currentUser', name)
         localStorage.setItem('authToken', urlToken)
         window.history.replaceState({}, document.title, window.location.pathname)
@@ -541,21 +544,17 @@ export default function App() {
 
   const authToken = user?.token || ''
 
- const askAssistant = async (text) => {
-  const token = localStorage.getItem('authToken') 
-    || sessionStorage.getItem('authToken')
-    || localStorage.getItem('currentUser')
-    || sessionStorage.getItem('currentUser')
-    || ''
-  const url = token
-    ? `${API}/documents/ask?q=${encodeURIComponent(text)}&top_k=5&token=${encodeURIComponent(token)}`
-    : `${API}/documents/ask?q=${encodeURIComponent(text)}&top_k=5`
-  const res = await fetch(url)
-  if (!res.ok) throw new Error(await parseApiError(res))
-  const data = await res.json()
-  if (!data.answer) throw new Error('Сервер вернул пустой ответ.')
-  return data
-}
+  const askAssistant = async (text) => {
+    const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken') || ''
+    const url = token
+      ? `${API}/documents/ask?q=${encodeURIComponent(text)}&top_k=${settings.topK}&token=${encodeURIComponent(token)}`
+      : `${API}/documents/ask?q=${encodeURIComponent(text)}&top_k=${settings.topK}`
+    const res = await fetch(url)
+    if (!res.ok) throw new Error(await parseApiError(res))
+    const data = await res.json()
+    if (!data.answer) throw new Error('Сервер вернул пустой ответ.')
+    return data
+  }
 
   const handleHistorySelect = (text) => {
     setInput(text)
@@ -614,12 +613,13 @@ export default function App() {
   }
 
   if (!user) return <Login onLogin={(data) => {
-  if (typeof data === 'object') {
-    setUser(data.username)
-  } else {
-    setUser(data)
-  }
-}} />
+    if (data && typeof data === 'object' && data.token) {
+      setUser(data)
+    } else if (typeof data === 'string') {
+      const token = localStorage.getItem('authToken') || sessionStorage.getItem('authToken') || ''
+      setUser({ username: data, token })
+    }
+  }} />
 
   const activeIndex = INDEX_TYPES.find(t => t.id === indexType)
 
@@ -758,9 +758,9 @@ export default function App() {
 
           {/* user card */}
           <div className="user-card" onClick={logout}>
-            <div className="user-avatar">{user.username?.[0]?.toUpperCase()}</div>
+            <div className="user-avatar">{(user?.username || user || '?')[0]?.toUpperCase()}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="user-name">{user.username}</div>
+              <div className="user-name">{user?.username || user}</div>
               <div className="user-role">Офлайн пользователь</div>
             </div>
             <button className="logout-btn" title="Выйти">
@@ -850,7 +850,7 @@ export default function App() {
                   <div className="msg-avatar">
                     {msg.sender === 'ai'
                       ? <img src={folderIcon} width={20} height={20} alt="AI" />
-                      : user.username?.[0]?.toUpperCase()
+                      : (user?.username || user || '?')[0]?.toUpperCase()
                     }
                   </div>
                   <div className="msg-body">
