@@ -910,179 +910,99 @@ async def handle_comparison_query(q: str, is_count_query: bool, is_compare_query
     t0 = time.perf_counter()
 
     try:
+        # Простой SQL-подсчёт — без эмбеддингов
         with get_conn() as conn:
             with conn.cursor() as cur:
                 if user_id > 0:
-                    cur.execute("""
-                        SELECT DISTINCT filename FROM document_chunks 
-                        WHERE source_type != 'pending' AND user_id = %s
-                        ORDER BY filename
-                    """, (user_id,))
+                    cur.execute(
+                        "SELECT filename FROM document_chunks WHERE source_type != 'pending' AND user_id = %s "
+                        "GROUP BY filename ORDER BY filename",
+                        (user_id,)
+                    )
                 else:
-                    cur.execute("""
-                        SELECT DISTINCT filename FROM document_chunks 
-                        WHERE source_type != 'pending'
-                        ORDER BY filename
-                    """)
+                    cur.execute(
+                        "SELECT filename FROM document_chunks WHERE source_type != 'pending' "
+                        "GROUP BY filename ORDER BY filename"
+                    )
                 files = [r[0] for r in cur.fetchall()]
-
-        if not files:
-            return {
-                "query": q,
-                "answer": "В базе нет документов для анализа.",
-                "sources": [],
-                "index_type": "comparison",
-                "top_k": 0,
-                "cosine_similarity": 0.0,
-                "temperature": 0.1,
-                "latency_ms": 0
-            }
-
-        try:
-            query_emb = await get_embedding(q)
-        except Exception as e:
-            logger.error(f"Failed to get query embedding: {e}")
-            return {
-                "query": q,
-                "answer": "Ошибка при обработке запроса. Не удалось получить эмбеддинг.",
-                "sources": [],
-                "index_type": "comparison",
-                "top_k": 0,
-                "cosine_similarity": 0.0,
-                "temperature": 0.1,
-                "latency_ms": 0
-            }
-
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                if user_id > 0:
-                    cur.execute("""
-                        SELECT DISTINCT ON (filename) filename, content, embedding
-                        FROM document_chunks
-                        WHERE source_type != 'pending' AND user_id = %s AND embedding IS NOT NULL
-                        ORDER BY filename, chunk_index
-                    """, (user_id,))
-                else:
-                    cur.execute("""
-                        SELECT DISTINCT ON (filename) filename, content, embedding
-                        FROM document_chunks
-                        WHERE source_type != 'pending' AND user_id = 0 AND embedding IS NOT NULL
-                        ORDER BY filename, chunk_index
-                    """)
-                rows = cur.fetchall()
-
-        if not rows:
-            return {
-                "query": q,
-                "answer": "Документы найдены, но эмбеддинги отсутствуют. Переиндексируйте документы.",
-                "sources": [],
-                "index_type": "comparison",
-                "top_k": 0,
-                "cosine_similarity": 0.0,
-                "temperature": 0.1,
-                "latency_ms": 0
-            }
-
-        try:
-            import numpy as np
-        except ImportError:
-            logger.error("numpy not installed")
-            return {
-                "query": q,
-                "answer": "Ошибка: numpy не установлен. Установите: pip install numpy",
-                "sources": [],
-                "index_type": "comparison",
-                "top_k": 0,
-                "cosine_similarity": 0.0,
-                "temperature": 0.1,
-                "latency_ms": 0
-            }
-
-        file_scores = []
-        for row in rows:
-            filename, content, embedding_str = row
-            try:
-                if not embedding_str or not content:
-                    continue
-
-                emb_str = str(embedding_str).strip()
-                if emb_str.startswith('[') and emb_str.endswith(']'):
-                    emb = [float(x.strip()) for x in emb_str[1:-1].split(',') if x.strip()]
-                else:
-                    emb = [float(x.strip()) for x in emb_str.split(',') if x.strip()]
-
-                if len(emb) != len(query_emb):
-                    logger.warning(f"Embedding dimension mismatch for {filename}: {len(emb)} vs {len(query_emb)}")
-                    continue
-
-                emb_arr = np.array(emb, dtype=np.float64)
-                query_arr = np.array(query_emb, dtype=np.float64)
-                sim = float(np.dot(query_arr, emb_arr) / (np.linalg.norm(query_arr) * np.linalg.norm(emb_arr) + 1e-10))
-
-                file_scores.append({
-                    "filename": filename,
-                    "similarity": round(sim, 4),
-                    "preview": content[:200] if content else ""
-                })
-            except Exception as e:
-                logger.warning(f"Error processing embedding for {filename}: {e}")
-                continue
-
-        file_scores.sort(key=lambda x: x["similarity"], reverse=True)
-
-        threshold = 0.2
-        matching = [f for f in file_scores if f["similarity"] >= threshold]
 
         latency = round((time.perf_counter() - t0) * 1000)
 
         if is_count_query:
-            answer = f"Найдено {len(matching)} файлов, соответствующих запросу.\n\n"
-            if matching:
-                answer += "Список файлов:\n"
-                for i, f in enumerate(matching[:10], 1):
-                    answer += f"{i}. {f['filename']} (схожесть: {f['similarity']:.2%})\n"
-                if len(matching) > 10:
-                    answer += f"\n... и ещё {len(matching) - 10} файлов"
+            if not files:
+                answer = "В базе знаний пока нет загруженных документов."
+            else:
+                answer = f"В базе знаний **{len(files)} файл(ов)**:\n\n"
+                for i, f in enumerate(files, 1):
+                    answer += f"{i}. {f}\n"
         else:
-            answer = f"Анализ документов завершён.\n\n"
-            answer += f"Всего документов в базе: {len(files)}\n"
-            answer += f"Документов с высокой семантической схожестью: {len(matching)}\n\n"
-            if matching:
-                answer += "Наиболее похожие документы:\n"
-                for i, f in enumerate(matching[:5], 1):
-                    answer += f"{i}. {f['filename']} ({f['similarity']:.2%})\n"
-
-        sources = [
-            {
-                "filename": f["filename"],
-                "chunk_index": 0,
-                "similarity": f["similarity"]
-            }
-            for f in matching[:20]
-        ]
+            # compare — используем эмбеддинги только для сравнения
+            if not files:
+                return {
+                    "query": q, "answer": "В базе нет документов для сравнения.",
+                    "sources": [], "index_type": "comparison",
+                    "top_k": 0, "cosine_similarity": 0.0, "temperature": 0.1, "latency_ms": latency
+                }
+            try:
+                import numpy as np
+                query_emb = await get_embedding(q)
+                with get_conn() as conn:
+                    with conn.cursor() as cur:
+                        if user_id > 0:
+                            cur.execute("""
+                                SELECT DISTINCT ON (filename) filename, content, embedding
+                                FROM document_chunks
+                                WHERE source_type != 'pending' AND user_id = %s AND embedding IS NOT NULL
+                                ORDER BY filename, chunk_index
+                            """, (user_id,))
+                        else:
+                            cur.execute("""
+                                SELECT DISTINCT ON (filename) filename, content, embedding
+                                FROM document_chunks
+                                WHERE source_type != 'pending' AND embedding IS NOT NULL
+                                ORDER BY filename, chunk_index
+                            """)
+                        rows = cur.fetchall()
+                file_scores = []
+                for filename, content, emb_str in rows:
+                    try:
+                        s = str(emb_str).strip().strip('[]')
+                        emb = [float(x) for x in s.split(',') if x.strip()]
+                        if len(emb) != len(query_emb):
+                            continue
+                        sim = float(np.dot(query_emb, emb) / (np.linalg.norm(query_emb) * np.linalg.norm(emb) + 1e-10))
+                        file_scores.append({"filename": filename, "similarity": round(sim, 4)})
+                    except Exception:
+                        continue
+                file_scores.sort(key=lambda x: x["similarity"], reverse=True)
+                answer = f"Всего документов: {len(files)}\n\n"
+                if file_scores:
+                    answer += "Наиболее похожие на запрос:\n"
+                    for i, f in enumerate(file_scores[:5], 1):
+                        answer += f"{i}. {f['filename']} ({f['similarity']:.2%})\n"
+                sources = [{"filename": f["filename"], "chunk_index": 0, "similarity": f["similarity"]} for f in file_scores[:20]]
+                return {
+                    "query": q, "answer": answer, "sources": sources,
+                    "index_type": "comparison", "top_k": len(sources),
+                    "cosine_similarity": file_scores[0]["similarity"] if file_scores else 0.0,
+                    "temperature": 0.1, "latency_ms": latency
+                }
+            except Exception as e:
+                logger.error(f"compare embeddings error: {e}")
+                answer = f"Всего документов в базе: {len(files)}"
 
         return {
-            "query": q,
-            "answer": answer,
-            "sources": sources,
-            "index_type": "comparison",
-            "top_k": len(sources),
-            "cosine_similarity": matching[0]["similarity"] if matching else 0.0,
-            "temperature": 0.1,
-            "latency_ms": latency
+            "query": q, "answer": answer, "sources": [],
+            "index_type": "comparison", "top_k": len(files),
+            "cosine_similarity": 1.0, "temperature": 0.1, "latency_ms": latency
         }
 
     except Exception as e:
         logger.error(f"handle_comparison_query error: {e}\n{traceback.format_exc()}")
         return {
-            "query": q,
-            "answer": f"Ошибка при обработке запроса: {str(e)}",
-            "sources": [],
-            "index_type": "comparison",
-            "top_k": 0,
-            "cosine_similarity": 0.0,
-            "temperature": 0.1,
-            "latency_ms": 0
+            "query": q, "answer": f"Ошибка: {str(e)}",
+            "sources": [], "index_type": "comparison",
+            "top_k": 0, "cosine_similarity": 0.0, "temperature": 0.1, "latency_ms": 0
         }
 
 @app.get("/adaptive/best-index")

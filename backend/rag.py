@@ -15,13 +15,17 @@ logger = logging.getLogger(__name__)
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-EMBED_MODEL    = "text-embedding-3-small"
-LLM_MODEL      = "gpt-4o-mini"
+EMBED_MODEL    = os.getenv("EMBED_MODEL", "text-embedding-3-small")
+LLM_MODEL      = os.getenv("LLM_MODEL", "gpt-4o-mini")
 CHUNK_SIZE     = 1500
 CHUNK_OVERLAP  = 150
 EMBEDDING_DIM  = 1536
 
-openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+def _get_openai_client() -> AsyncOpenAI:
+    key = os.getenv("OPENAI_API_KEY", OPENAI_API_KEY)
+    return AsyncOpenAI(api_key=key)
+
+openai_client = _get_openai_client()
 
 DB_CONFIG = {
     "host":     os.getenv("PG_HOST",     "127.0.0.1"),
@@ -210,7 +214,8 @@ async def check_ollama_health() -> tuple[bool, str]:
 
 
 async def get_embedding(text: str) -> list[float]:
-    res = await openai_client.embeddings.create(model=EMBED_MODEL, input=text)
+    client = _get_openai_client()
+    res = await client.embeddings.create(model=EMBED_MODEL, input=text)
     emb = res.data[0].embedding
     if not emb:
         raise ValueError("Empty embedding returned")
@@ -282,12 +287,12 @@ class RAGPipeline:
         return split_text(extract_text(filename, content))
 
     async def embed(self, chunks: list[str]) -> list[list[float]]:
-        # OpenAI поддерживает batch до 2048 текстов за один запрос
+        client = _get_openai_client()
         BATCH = 512
         results = []
         for i in range(0, len(chunks), BATCH):
             batch = chunks[i:i + BATCH]
-            res = await openai_client.embeddings.create(model=EMBED_MODEL, input=batch)
+            res = await client.embeddings.create(model=EMBED_MODEL, input=batch)
             res.data.sort(key=lambda x: x.index)
             results.extend([d.embedding for d in res.data])
         return results
@@ -309,7 +314,6 @@ class RAGPipeline:
         return len(chunks)
 
     async def embed_all(self, filename: str, user_id: int = 0) -> None:
-        """Embed ALL chunks in parallel OpenAI batches + bulk UPDATE via execute_batch."""
         from psycopg2.extras import execute_batch
         _ensure_indexing_table()
         try:
@@ -331,17 +335,16 @@ class RAGPipeline:
                 return
             ids   = [r[0] for r in rows]
             texts = [r[1] for r in rows]
-            # All batches fired concurrently — one round-trip per 512 chunks
+            client = _get_openai_client()
             BATCH = 512
             batches = [texts[i:i+BATCH] for i in range(0, len(texts), BATCH)]
             results = await asyncio.gather(*[
-                openai_client.embeddings.create(model=EMBED_MODEL, input=b) for b in batches
+                client.embeddings.create(model=EMBED_MODEL, input=b) for b in batches
             ])
             embeddings: list[list[float]] = []
             for res in results:
                 res.data.sort(key=lambda x: x.index)
                 embeddings.extend([d.embedding for d in res.data])
-            # Bulk UPDATE: pass list[float] directly, pgvector accepts it
             with get_conn() as conn:
                 with conn.cursor() as cur:
                     execute_batch(
@@ -487,7 +490,8 @@ class RAGPipeline:
         )
 
     async def generate(self, prompt: str) -> str:
-        res = await openai_client.chat.completions.create(
+        client = _get_openai_client()
+        res = await client.chat.completions.create(
             model=LLM_MODEL,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
