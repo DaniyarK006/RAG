@@ -476,12 +476,13 @@ class RAGPipeline:
             for c in chunks
         )
         return (
-            f"Ты — умный ИИ-ассистент базы знаний. Отвечай на русском языке.\n\n"
+            f"Ты — умный универсальный ИИ-ассистент базы знаний. Отвечай на русском языке.\n\n"
             f"ПРАВИЛА:\n"
-            f"1. Используй документы как основу, рассуждай самостоятельно, делай выводы.\n"
-            f"2. На вопросы про количество/список файлов — отвечай по ПОЛНОМУ СПИСКУ выше.\n"
-            f"3. Используй Markdown: **жирный**, ## заголовки, - списки.\n"
-            f"4. Никогда не пиши 'представлен выше' — давай конкретный ответ.\n\n"
+            f"1. Если в документах есть ответ — используй их как основу, дополняй своими знаниями.\n"
+            f"2. Если в документах нет ответа — отвечай из своих знаний, не говори что не можешь помочь.\n"
+            f"3. На вопросы про количество/список файлов — отвечай по ПОЛНОМУ СПИСКУ выше.\n"
+            f"4. Используй Markdown: **жирный**, ## заголовки, - списки.\n"
+            f"5. Никогда не пиши 'представлен выше' — давай конкретный ответ.\n\n"
             f"{'='*50}\n"
             f"{system_context}"
             f"{'='*50}\n\n"
@@ -523,12 +524,34 @@ class RAGPipeline:
 
         if not chunks:
             prompt = (
-                f"Ты — умный ассистент. Отвечай развёрнуто и полезно на любой вопрос.\n"
-                f"Если вопрос про количество файлов или документов — скажи что база знаний пуста.\n\n"
+                f"Ты — умный универсальный ИИ-ассистент. Отвечай развёрнуто, полезно и точно на русском языке.\n"
+                f"База знаний пуста или не содержит релевантных документов по этому вопросу.\n"
+                f"Отвечай из своих знаний — не говори что не можешь помочь.\n\n"
                 f"Вопрос: {query}\n\nОтвет:"
             )
             answer = await self.generate(prompt)
             return {"query": query, "answer": answer, "sources": [], "cosine_similarity": 0.0}
+
+        prompt = self.augment_prompt(query, chunks, all_files=all_files,
+                                     total_docs=info["total_documents"],
+                                     total_chunks=info["total_chunks"])
+        answer = await self.generate(prompt)
+        score  = await self.evaluate(query, answer)
+
+        return {
+            "query":  query,
+            "answer": answer,
+            "sources": [
+                {"filename": c["filename"], "chunk_index": c["chunk_index"],
+                 "similarity": c["similarity"], "rerank_score": c.get("rerank_score")}
+                for c in chunks
+            ],
+            "source_chunks": [
+                {"filename": c["filename"], "content": c["content"][:500], "similarity": c["similarity"]}
+                for c in chunks
+            ],
+            "cosine_similarity": score,
+        }
 
         prompt = self.augment_prompt(query, chunks, all_files=all_files,
                                      total_docs=info["total_documents"],
