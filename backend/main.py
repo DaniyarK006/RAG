@@ -535,7 +535,9 @@ async def ask(q: str, top_k: int = 5, token: str = ""):
             pass
 
     q_lower = q.lower()
-    is_count_query = any(kw in q_lower for kw in ["сколько", "количество", "число", "count", "how many"])
+    doc_count_keywords = ["файл", "документ", "базе знаний", "в базе", "загружен", "file", "document"]
+    is_count_query = any(kw in q_lower for kw in ["сколько", "количество", "число", "count", "how many"]) \
+        and any(kw in q_lower for kw in doc_count_keywords)
     is_compare_query = any(kw in q_lower for kw in ["одинаков", "схож", "похож", "сравн", "same", "similar", "compare"])
 
     if is_count_query or is_compare_query:
@@ -802,7 +804,9 @@ async def index_query(q: str, index: str = "vector", top_k: int = 5, token: str 
             pass
 
     q_lower = q.lower()
-    is_count_query = any(kw in q_lower for kw in ["сколько", "количество", "число", "count", "how many"])
+    doc_count_keywords = ["файл", "документ", "базе знаний", "в базе", "загружен", "file", "document"]
+    is_count_query = any(kw in q_lower for kw in ["сколько", "количество", "число", "count", "how many"]) \
+        and any(kw in q_lower for kw in doc_count_keywords)
     is_compare_query = any(kw in q_lower for kw in ["одинаков", "схож", "похож", "сравн", "same", "similar", "compare"])
 
     greetings = ["привет", "здравствуй", "хай", "hello", "hi", "добрый день",
@@ -876,7 +880,9 @@ async def adaptive_ask(q: str, index: str = "auto", token: str = ""):
                 pass
 
         q_lower = q.lower()
-        is_count_query = any(kw in q_lower for kw in ["сколько", "количество", "число", "count", "how many"])
+        doc_count_keywords = ["файл", "документ", "базе знаний", "в базе", "загружен", "file", "document"]
+        is_count_query = any(kw in q_lower for kw in ["сколько", "количество", "число", "count", "how many"]) \
+            and any(kw in q_lower for kw in doc_count_keywords)
         is_compare_query = any(kw in q_lower for kw in ["одинаков", "схож", "похож", "сравн", "same", "similar", "compare"])
 
         if is_count_query or is_compare_query:
@@ -915,7 +921,8 @@ async def handle_comparison_query(q: str, is_count_query: bool, is_compare_query
                 else:
                     cur.execute("""
                         SELECT DISTINCT filename FROM document_chunks 
-                        WHERE 1 = 0
+                        WHERE source_type != 'pending'
+                        ORDER BY filename
                     """)
                 files = [r[0] for r in cur.fetchall()]
 
@@ -959,7 +966,7 @@ async def handle_comparison_query(q: str, is_count_query: bool, is_compare_query
                     cur.execute("""
                         SELECT DISTINCT ON (filename) filename, content, embedding
                         FROM document_chunks
-                        WHERE source_type != 'pending' AND embedding IS NOT NULL
+                        WHERE source_type != 'pending' AND user_id = 0 AND embedding IS NOT NULL
                         ORDER BY filename, chunk_index
                     """)
                 rows = cur.fetchall()
