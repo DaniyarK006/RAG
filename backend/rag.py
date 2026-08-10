@@ -509,53 +509,57 @@ class RAGPipeline:
             "Отвечай на русском языке, развёрнуто, точно и полезно. "
             "Если вопрос касается документов — используй их как основу. "
             "Если вопрос общий (наука, жизнь, технологии, любая тема) — отвечай из своих знаний, не отказывайся. "
+            "Даже если в сообщении есть опечатки — пойми смысл и ответь правильно. "
             "Используй Markdown для форматирования. Никогда не говори 'я не могу' — всегда давай полезный ответ."
         )
 
-        greetings = ['привет', 'hello', 'hi', 'здравствуй', 'здравствуйте',
+        greetings = ['привет', 'привеи', 'приве', 'прив', 'hello', 'hi', 'hey',
+                     'здравствуй', 'здравствуйте', 'здрасти', 'здрасьте',
                      'добрый день', 'добрый вечер', 'доброе утро', 'хай', 'салют']
-        if query.lower().strip().rstrip('!.,') in greetings:
+        q_clean = query.lower().strip().rstrip('!.,?')
+        if q_clean in greetings:
             return {
                 "query": query,
-                "answer": "Привет! Я готов помочь. Задайте любой вопрос — отвечу по документам из базы знаний или из своих знаний.",
+                "answer": "Привет! Чем могу помочь?",
                 "sources": [], "cosine_similarity": 1.0,
             }
 
         info      = vector_store_info(user_id)
         all_files = get_all_files_info(user_id)
-        chunks    = await self.retrieve(query, top_k, user_id)
 
-        if not chunks:
-            # Нет документов — отвечаем из общих знаний
-            answer = await self.generate(query, system=SYSTEM)
+        try:
+            chunks = await self.retrieve(query, top_k, user_id)
+        except Exception as e:
+            logger.error(f"retrieve error: {e}")
+            chunks = []
+
+        try:
+            if not chunks:
+                answer = await self.generate(query, system=SYSTEM)
+            else:
+                prompt = self.augment_prompt(query, chunks, all_files=all_files,
+                                             total_docs=info["total_documents"],
+                                             total_chunks=info["total_chunks"])
+                answer = await self.generate(prompt, system=SYSTEM)
+        except Exception as e:
+            err = str(e)
+            if "429" in err or "credit" in err.lower() or "quota" in err.lower():
+                answer = "К сожалению, сервис временно недоступен — исчерпан лимит запросов. Попробуйте позже."
+            elif "401" in err or "api_key" in err.lower():
+                answer = "Ошибка конфигурации сервиса. Пожалуйста, свяжитесь с администратором."
+            elif "404" in err or "model" in err.lower():
+                answer = "Модель временно недоступна. Попробуйте позже."
+            else:
+                answer = "Произошла ошибка при обработке запроса. Попробуйте ещё раз."
             return {"query": query, "answer": answer, "sources": [], "cosine_similarity": 0.0}
 
-        prompt = self.augment_prompt(query, chunks, all_files=all_files,
-                                     total_docs=info["total_documents"],
-                                     total_chunks=info["total_chunks"])
-        answer = await self.generate(prompt, system=SYSTEM)
-        score  = await self.evaluate(query, answer)
+        try:
+            score = await self.evaluate(query, answer)
+        except Exception:
+            score = 0.0
 
-        return {
-            "query":  query,
-            "answer": answer,
-            "sources": [
-                {"filename": c["filename"], "chunk_index": c["chunk_index"],
-                 "similarity": c["similarity"], "rerank_score": c.get("rerank_score")}
-                for c in chunks
-            ],
-            "source_chunks": [
-                {"filename": c["filename"], "content": c["content"][:500], "similarity": c["similarity"]}
-                for c in chunks
-            ],
-            "cosine_similarity": score,
-        }
-
-        prompt = self.augment_prompt(query, chunks, all_files=all_files,
-                                     total_docs=info["total_documents"],
-                                     total_chunks=info["total_chunks"])
-        answer = await self.generate(prompt)
-        score  = await self.evaluate(query, answer)
+        if not chunks:
+            return {"query": query, "answer": answer, "sources": [], "cosine_similarity": score}
 
         return {
             "query":  query,
