@@ -796,47 +796,77 @@ export default function App() {
                   <path d="M3 12h18M3 6h18M3 18h18"/>
                 </svg>
               </button>
-              <div className="topbar-left">
-                <div className="topbar-title">
-                  {renderIcon(activeIndex?.icon)}&nbsp;{activeIndex?.label}
-                </div>
-                <div className="index-chips">
-                  {INDEX_TYPES.map(t => (
-                    <button
-                      key={t.id}
-                      className={`index-chip ${indexType === t.id ? 'active' : ''}`}
-                      onClick={() => setIndexType(t.id)}
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
+
+              {/* ── Toolbar ── */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 4, flex: 1, flexWrap: 'wrap' }}>
+
+                {/* Index type pills */}
+                {INDEX_TYPES.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setIndexType(t.id)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      padding: '6px 12px', borderRadius: 8, cursor: 'pointer',
+                      fontSize: 13, fontWeight: 500, fontFamily: 'inherit',
+                      border: indexType === t.id ? '1px solid rgba(79,142,255,0.4)' : '1px solid var(--border)',
+                      background: indexType === t.id ? 'var(--accent-dim)' : 'var(--bg-2)',
+                      color: indexType === t.id ? 'var(--accent)' : 'var(--txt-2)',
+                      transition: 'all 0.15s',
+                    }}
+                    onMouseEnter={e => { if (indexType !== t.id) { e.currentTarget.style.background = 'var(--bg-3)'; e.currentTarget.style.color = 'var(--txt-1)' } }}
+                    onMouseLeave={e => { if (indexType !== t.id) { e.currentTarget.style.background = 'var(--bg-2)'; e.currentTarget.style.color = 'var(--txt-2)' } }}
+                  >
+                    {t.id === 'auto'    && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>}
+                    {t.id === 'vector'  && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#60A5FA" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>}
+                    {t.id === 'tree'    && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#34d399" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg>}
+                    {t.id === 'list'    && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FACC14" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>}
+                    {t.id === 'keyword' && <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FB923C" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>}
+                    {t.label}
+                  </button>
+                ))}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {/* History button */}
+
+              {/* Right controls */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                 <button
                   onClick={() => setShowHistory(true)}
-                  title="История запросов"
-                  style={S.historyBtn}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(79,142,255,0.3)'; e.currentTarget.style.color = 'var(--accent)' }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--txt-3)' }}
+                  title="История"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '6px 10px', borderRadius: 8, cursor: 'pointer',
+                    fontSize: 13, fontFamily: 'inherit', fontWeight: 500,
+                    background: 'var(--bg-2)', border: '1px solid var(--border)',
+                    color: 'var(--txt-2)', transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-3)'; e.currentTarget.style.color = 'var(--txt-1)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--bg-2)'; e.currentTarget.style.color = 'var(--txt-2)' }}
                 >
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="10"/>
-                    <path d="M12 6v6l4 2"/>
+                    <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
                   </svg>
+                  <span className="topbar-btn-label">История</span>
                 </button>
+
                 <button
                   onClick={() => setShowSettings(true)}
-                  style={S.settingsBtnSm}
-                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(79,142,255,0.14)'; e.currentTarget.style.borderColor = 'rgba(79,142,255,0.3)' }}
-                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--accent-dim)'; e.currentTarget.style.borderColor = 'rgba(79,142,255,0.18)' }}
+                  title="Настройки"
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 6,
+                    padding: '6px 10px', borderRadius: 8, cursor: 'pointer',
+                    fontSize: 13, fontFamily: 'inherit', fontWeight: 500,
+                    background: 'var(--accent-dim)', border: '1px solid rgba(79,142,255,0.2)',
+                    color: 'var(--accent)', transition: 'all 0.15s',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = 'rgba(79,142,255,0.14)'; e.currentTarget.style.borderColor = 'rgba(79,142,255,0.4)' }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'var(--accent-dim)'; e.currentTarget.style.borderColor = 'rgba(79,142,255,0.2)' }}
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                     <circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/>
                   </svg>
-                  top-{settings.topK}
+                  <span className="topbar-btn-label">top-{settings.topK}</span>
                 </button>
+
                 <div className={`status-pill ${backendUp === false ? 'offline' : ''}`}>
                   <span className={`status-dot ${backendUp === false ? 'offline' : ''}`} />
                   {backendUp === null ? '...' : backendUp ? 'Онлайн' : 'Офлайн'}

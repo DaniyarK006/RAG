@@ -175,6 +175,7 @@
 
   /* Hide index chips on mobile — too cramped */
   .index-chips { display: none; }
+  .topbar-btn-label { display: none; }
 
   /* Messages — the only scrollable area, contained scroll */
   .messages {
