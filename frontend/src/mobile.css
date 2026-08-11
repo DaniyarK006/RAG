@@ -419,9 +419,7 @@
   }
 }
 
-/* ===========================================
-   Phone (<=480px) — even more compact
-   =========================================== */
+
 @media (max-width: 480px) {
   .stats-row { grid-template-columns: repeat(2, 1fr) !important; }
   .messages { padding: 10px 8px; gap: 10px; }
@@ -444,9 +442,6 @@
   .mobile-topbar-title { font-size: 13px; }
 }
 
-/* ===========================================
-   Landscape orientation on phones
-   =========================================== */
 @media (max-width: 900px) and (orientation: landscape) and (max-height: 500px) {
   .messages { padding: 6px 12px; }
   .msg-bubble { font-size: 13px; }

@@ -5,16 +5,14 @@ from rag import get_conn, EMBEDDING_DIM
 conn = get_conn()
 cur = conn.cursor()
 
-# Drop old table
 cur.execute("DROP TABLE IF EXISTS document_chunks CASCADE")
 conn.commit()
 print("table dropped")
 
-# Ensure vector extension
+
 cur.execute("CREATE EXTENSION IF NOT EXISTS vector")
 conn.commit()
 
-# Create table with vector(1024)
 cur.execute(f"""
     CREATE TABLE document_chunks (
         id          serial PRIMARY KEY,
@@ -29,7 +27,6 @@ cur.execute(f"""
 conn.commit()
 print(f"table created with vector({EMBEDDING_DIM})")
 
-# Verify
 cur.execute("SELECT column_name, udt_name FROM information_schema.columns WHERE table_name='document_chunks' AND column_name='embedding'")
 r = cur.fetchone()
 print(f"OK: {r[0]} = {r[1]}({EMBEDDING_DIM})")

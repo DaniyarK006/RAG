@@ -9,21 +9,25 @@ import logging
 from typing import Optional
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
+from groq import AsyncGroq
 
 logger = logging.getLogger(__name__)
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '.env'))
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-EMBED_MODEL    = "text-embedding-3-small"   # OpenAI — всегда доступна на Vercel
-LLM_MODEL      = "gpt-4o-mini"              # OpenAI — всегда доступна на Vercel
+GROQ_API_KEY   = os.getenv("GROQ_API_KEY", "")
+EMBED_MODEL    = "text-embedding-3-small"  # OpenAI — только для эмбеддингов
+LLM_MODEL      = "llama-3.1-8b-instant"   # Groq — бесплатно, быстро
 CHUNK_SIZE     = 1500
 CHUNK_OVERLAP  = 150
 EMBEDDING_DIM  = 1536
 
 def _get_openai_client() -> AsyncOpenAI:
-    key = os.getenv("OPENAI_API_KEY", OPENAI_API_KEY)
-    return AsyncOpenAI(api_key=key)
+    return AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY", OPENAI_API_KEY))
+
+def _get_groq_client() -> AsyncGroq:
+    return AsyncGroq(api_key=os.getenv("GROQ_API_KEY", GROQ_API_KEY))
 
 openai_client = _get_openai_client()
 
@@ -482,7 +486,7 @@ class RAGPipeline:
         )
 
     async def generate(self, prompt: str, system: str = "") -> str:
-        client = _get_openai_client()
+        client = _get_groq_client()
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -543,14 +547,15 @@ class RAGPipeline:
                 answer = await self.generate(prompt, system=SYSTEM)
         except Exception as e:
             err = str(e)
-            if "429" in err or "credit" in err.lower() or "quota" in err.lower():
-                answer = "К сожалению, сервис временно недоступен — исчерпан лимит запросов. Попробуйте позже."
-            elif "401" in err or "api_key" in err.lower():
+            if "429" in err or "rate_limit" in err.lower() or "quota" in err.lower():
+                answer = "К сожалению, слишком много запросов за короткое время. Подождите несколько секунд и повторите."
+            elif "401" in err or "api_key" in err.lower() or "auth" in err.lower():
                 answer = "Ошибка конфигурации сервиса. Пожалуйста, свяжитесь с администратором."
             elif "404" in err or "model" in err.lower():
                 answer = "Модель временно недоступна. Попробуйте позже."
             else:
-                answer = "Произошла ошибка при обработке запроса. Попробуйте ещё раз."
+                logger.error(f"generate error: {err}")
+                answer = "Произошла ошибка. Попробуйте ещё раз."
             return {"query": query, "answer": answer, "sources": [], "cosine_similarity": 0.0}
 
         try:

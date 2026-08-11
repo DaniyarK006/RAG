@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 
-const API = 'http://localhost:8000'
+const API = ''
 
 const styles = {
   container: {

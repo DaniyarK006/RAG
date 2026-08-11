@@ -2,7 +2,6 @@ import urllib.request
 import json
 import sys
 
-# Параметры подключения 
 DB_CONFIG = {
     "host": "127.0.0.1",
     "port": 5433,
