@@ -112,18 +112,15 @@ export default function CitableAnswer({ answer, sources, sourceChunks, token }) 
                 </div>
                 <button
                   onClick={() => openFile(item.name)}
-                  title="Открыть файл"
                   style={{
                     flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer',
-                    color: 'var(--txt-3)', padding: 4, borderRadius: 6, display: 'flex',
-                    transition: 'color 0.15s',
+                    fontSize: 11, color: 'var(--accent)', fontFamily: 'inherit', fontWeight: 500,
+                    padding: '4px 0', transition: 'opacity 0.15s',
                   }}
-                  onMouseEnter={e => e.currentTarget.style.color = 'var(--accent)'}
-                  onMouseLeave={e => e.currentTarget.style.color = 'var(--txt-3)'}
+                  onMouseEnter={e => e.currentTarget.style.opacity = '0.7'}
+                  onMouseLeave={e => e.currentTarget.style.opacity = '1'}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/>
-                  </svg>
+                  Открыть файл
                 </button>
               </div>
             )
