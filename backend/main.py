@@ -1108,26 +1108,42 @@ async def view_document(filename: str, chunk_index: int = 0, user_id: int = 0):
 
 
 @app.get("/api/documents/download/{filename}")
-async def download_document(filename: str, user_id: int = 0):
-    if not rbac.check_access(user_id, filename):
-        raise HTTPException(status_code=403, detail="Доступ запрещён")
-    rbac.log_access(user_id, filename, action='download')
-    from fastapi.responses import FileResponse
-    import os as os_module
-    upload_dir = os_module.path.join(os_module.path.dirname(__file__), "..", "uploads")
-    file_path = os_module.path.join(upload_dir, filename)
-    if os_module.path.exists(file_path):
-        return FileResponse(file_path)
+async def download_document(filename: str, token: str = ""):
+    user_id = 0
+    if token:
+        try:
+            payload = decode_token(token)
+            user_id = int(payload["sub"])
+        except Exception:
+            pass
+
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT content FROM document_chunks WHERE filename = %s ORDER BY chunk_index LIMIT 1",
-                (filename,)
+                "SELECT chunk_index, content FROM document_chunks "
+                "WHERE filename = %s AND user_id = %s ORDER BY chunk_index",
+                (filename, user_id)
             )
-            row = cur.fetchone()
-    if not row:
+            rows = cur.fetchall()
+
+    if not rows:
         raise HTTPException(status_code=404, detail="Документ не найден")
-    return {"filename": filename, "content": row[0][:5000]}
+
+    full_text = "\n\n".join(r[1] for r in rows)
+    escaped = full_text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    html = f"""<!DOCTYPE html><html><head>
+<meta charset="utf-8">
+<title>{filename}</title>
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+         background: #0d1117; color: #e6edf3; padding: 32px; max-width: 860px; margin: 0 auto; line-height: 1.7; }}
+  h2 {{ font-size: 16px; color: #8b949e; font-weight: 500; margin-bottom: 24px;
+        border-bottom: 1px solid #21262d; padding-bottom: 12px; }}
+  pre {{ white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: 14px; }}
+</style></head><body>
+<h2>{filename}</h2><pre>{escaped}</pre>
+</body></html>"""
+    return HTMLResponse(content=html)
 
 
 @app.get("/api/rbac/users")
