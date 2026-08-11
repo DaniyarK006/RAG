@@ -110,18 +110,7 @@ export default function CitableAnswer({ answer, sources, sourceChunks, token }) 
                     </div>
                   )}
                 </div>
-                <button
-                  onClick={() => openFile(item.name)}
-                  style={{
-                    flexShrink: 0, background: 'none', border: 'none', cursor: 'pointer',
-                    fontSize: 11, color: 'var(--accent)', fontFamily: 'inherit', fontWeight: 500,
-                    padding: '4px 0', transition: 'opacity 0.15s',
-                  }}
-                  onMouseEnter={e => e.currentTarget.style.opacity = '0.7'}
-                  onMouseLeave={e => e.currentTarget.style.opacity = '1'}
-                >
-                  Открыть файл
-                </button>
+
               </div>
             )
           })}
