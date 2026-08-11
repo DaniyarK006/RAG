@@ -830,32 +830,19 @@ export default function App() {
                     }
                   </div>
                   <div className="msg-body">
-                    {msg.sender === 'ai' && msg.sources && msg.sources.length > 0 ? (
+                    {msg.sender === 'ai' ? (
                       <div className="msg-bubble" style={{ padding: '14px' }}>
                         <CitableAnswer
                           answer={msg.text}
                           sources={msg.raw?.sources || []}
                           sourceChunks={msg.sourceChunks || []}
+                          token={authToken}
                         />
-                        {msg.meta && msg.meta.cosine != null && (
-                          <div className="msg-meta" style={{ marginTop: '12px' }}>
-                            <span className="meta-stat">достоверность {msg.meta.cosine}</span>
-                          </div>
-                        )}
                       </div>
                     ) : (
-                      <>
-                        <div className="msg-bubble" dangerouslySetInnerHTML={{
-                          __html: (msg.text || '')
-                            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                            .replace(/\n/g, '<br/>')
-                        }} />
-                        {msg.meta && msg.meta.cosine != null && (
-                          <div className="msg-meta">
-                            <span className="meta-stat">достоверность {msg.meta.cosine}</span>
-                          </div>
-                        )}
-                      </>
+                      <div className="msg-bubble" dangerouslySetInnerHTML={{
+                        __html: (msg.text || '').replace(/\n/g, '<br/>')
+                      }} />
                     )}
                   </div>
                 </div>
