@@ -100,7 +100,6 @@ export default function CitableAnswer({ answer, sources, sourceChunks, token }) 
                 padding: '12px 14px', borderRadius: 12,
                 background: 'var(--bg-2)', border: '1px solid var(--border)',
               }}>
-                <FileIcon ext={ext} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--txt-1)', marginBottom: 4 }}>
                     {item.name}
@@ -172,7 +171,6 @@ export default function CitableAnswer({ answer, sources, sourceChunks, token }) 
                     onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-3)' }}
                     onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
                   >
-                    <FileIcon ext={ext} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--txt-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                         {src.filename}
