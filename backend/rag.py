@@ -507,11 +507,37 @@ class RAGPipeline:
         except Exception:
             return 0.0
 
+    async def _retrieve_overview(self, user_id: int, chunks_per_file: int = 2) -> list[dict]:
+        """Берёт первые N чанков из каждого файла для обзорного ответа."""
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                if user_id > 0:
+                    cur.execute("""
+                        SELECT DISTINCT ON (filename) filename, chunk_index, content, source_type
+                        FROM document_chunks
+                        WHERE user_id = %s AND embedding IS NOT NULL
+                        ORDER BY filename, chunk_index
+                    """, (user_id,))
+                else:
+                    cur.execute("""
+                        SELECT DISTINCT ON (filename) filename, chunk_index, content, source_type
+                        FROM document_chunks
+                        WHERE embedding IS NOT NULL
+                        ORDER BY filename, chunk_index
+                    """)
+                rows = cur.fetchall()
+        return [
+            {"filename": r[0], "chunk_index": r[1], "content": r[2],
+             "source_type": r[3], "similarity": 1.0, "rerank_score": 1.0}
+            for r in rows
+        ]
+
     async def run(self, query: str, top_k: int = 10, user_id: int = 0) -> dict:
         SYSTEM = (
             "Ты — умный, дружелюбный ИИ-ассистент сервиса DocRAG. "
             "Отвечай на русском языке, развёрнуто, точно и полезно. "
             "Если вопрос касается документов — используй их как основу. "
+            "Если пользователь просит рассказать о содержимом файлов — дай краткое описание каждого файла по его фрагментам. "
             "Если вопрос общий (наука, жизнь, технологии, любая тема) — отвечай из своих знаний, не отказывайся. "
             "Даже если в сообщении есть опечатки — пойми смысл и ответь правильно. "
             "Используй Markdown для форматирования. Никогда не говори 'я не могу' — всегда давай полезный ответ."
@@ -531,8 +557,20 @@ class RAGPipeline:
         info      = vector_store_info(user_id)
         all_files = get_all_files_info(user_id)
 
+        # Детекция обзорного запроса «что в файлах / расскажи о всех документах»
+        overview_keywords = [
+            'что в файлах', 'что в документах', 'что внутри', 'содержимое файлов',
+            'содержимое документов', 'расскажи о файлах', 'расскажи о документах',
+            'о всех файлах', 'о всех документах', 'что за файлы', 'что за документы',
+            'обзор файлов', 'обзор документов', 'краткое содержание',
+        ]
+        is_overview = any(kw in q_clean for kw in overview_keywords)
+
         try:
-            chunks = await self.retrieve(query, top_k, user_id)
+            if is_overview and all_files:
+                chunks = await self._retrieve_overview(user_id)
+            else:
+                chunks = await self.retrieve(query, top_k, user_id)
         except Exception as e:
             logger.error(f"retrieve error: {e}")
             chunks = []
