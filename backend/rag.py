@@ -508,7 +508,7 @@ class RAGPipeline:
             return 0.0
 
     async def _retrieve_overview(self, user_id: int, chunks_per_file: int = 3) -> list[dict]:
-        """Берёт первые N чанков из каждого файла для обзорного ответа."""
+        """Берёт первые N чанков из каждого файла — с эмбеддингами или без."""
         with get_conn() as conn:
             with conn.cursor() as cur:
                 if user_id > 0:
@@ -518,7 +518,7 @@ class RAGPipeline:
                             SELECT filename, chunk_index, content, source_type,
                                    ROW_NUMBER() OVER (PARTITION BY filename ORDER BY chunk_index) AS rn
                             FROM document_chunks
-                            WHERE user_id = %s AND embedding IS NOT NULL
+                            WHERE user_id = %s AND source_type != 'pending'
                         ) t WHERE rn <= %s
                         ORDER BY filename, chunk_index
                     """, (user_id, chunks_per_file))
@@ -529,7 +529,7 @@ class RAGPipeline:
                             SELECT filename, chunk_index, content, source_type,
                                    ROW_NUMBER() OVER (PARTITION BY filename ORDER BY chunk_index) AS rn
                             FROM document_chunks
-                            WHERE embedding IS NOT NULL
+                            WHERE source_type != 'pending'
                         ) t WHERE rn <= %s
                         ORDER BY filename, chunk_index
                     """, (chunks_per_file,))
@@ -577,16 +577,26 @@ class RAGPipeline:
         is_overview = any(kw in q_clean for kw in overview_keywords)
 
         try:
-            if is_overview and all_files:
+            if is_overview:
                 chunks = await self._retrieve_overview(user_id)
+                if not chunks and all_files:
+                    names = ", ".join(f["filename"] for f in all_files)
+                    return {
+                        "query": query,
+                        "answer": f"В базе знаний {len(all_files)} файл(ов): {names}. Содержимое пока не проиндексировано.",
+                        "sources": [], "cosine_similarity": 0.0,
+                    }
             else:
                 chunks = await self.retrieve(query, top_k, user_id)
         except Exception as e:
             logger.error(f"retrieve error: {e}")
             chunks = []
+        except Exception as e:
+            logger.error(f"retrieve error: {e}")
+            chunks = []
 
         try:
-            if not chunks:
+            if not chunks and not is_overview:
                 answer = await self.generate(query, system=SYSTEM)
             elif is_overview:
                 # Группируем чанки по файлам и строим специальный промпт
