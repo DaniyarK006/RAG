@@ -2,273 +2,181 @@ import React, { useState, useEffect } from 'react'
 
 const API = ''
 
-const styles = {
-  container: {
-    display: 'grid',
-    gridTemplateColumns: '1fr 1fr',
-    gap: '20px',
-    marginTop: '12px',
-  },
-  answerText: {
-    fontSize: '14px',
-    lineHeight: 1.7,
-    color: 'var(--txt-1)',
-  },
-  sourcesPanel: {
-    marginTop: '16px',
-    borderTop: '1px solid var(--border)',
-    paddingTop: '12px',
-  },
-  sourcesTitle: {
-    fontSize: '12px',
-    fontWeight: 600,
-    color: 'var(--txt-3)',
-    textTransform: 'uppercase',
-    letterSpacing: '0.8px',
-    marginBottom: '8px',
-  },
-  sourceItem: {
-    padding: '10px 12px',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    transition: 'all 0.15s',
-    border: '1px solid var(--border)',
-    marginBottom: '6px',
-    background: 'var(--bg-2)',
-  },
-  sourceItemActive: {
-    padding: '10px 12px',
-    borderRadius: '8px',
-    cursor: 'pointer',
-    transition: 'all 0.15s',
-    border: '1px solid var(--accent)',
-    marginBottom: '6px',
-    background: 'var(--accent-dim)',
-  },
-  sourceFilename: {
-    color: '#60a5fa',
-    fontSize: '13px',
-    fontWeight: 500,
-  },
-  sourceMeta: {
-    fontSize: '11px',
-    color: 'var(--txt-3)',
-    marginTop: '2px',
-  },
-  previewPanel: {
-    border: '1px solid var(--border)',
-    borderRadius: '10px',
-    padding: '14px',
-    background: 'var(--bg-2)',
-    maxHeight: '500px',
-    overflow: 'hidden',
-    display: 'flex',
-    flexDirection: 'column',
-  },
-  previewHeader: {
-    fontSize: '14px',
-    fontWeight: 600,
-    color: 'var(--txt-1)',
-    marginBottom: '8px',
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  previewMeta: {
-    fontSize: '11px',
-    color: 'var(--txt-3)',
-    marginBottom: '10px',
-  },
-  previewContent: {
-    background: 'var(--bg-3)',
-    padding: '14px',
-    borderRadius: '8px',
-    fontFamily: 'monospace',
-    fontSize: '12px',
-    lineHeight: 1.6,
-    maxHeight: '320px',
-    overflowY: 'auto',
-    color: 'var(--txt-1)',
-    whiteSpace: 'pre-wrap',
-    wordBreak: 'break-word',
-  },
-  highlight: {
-    background: '#fbbf24',
-    color: '#1e1b4b',
-    padding: '2px 4px',
-    borderRadius: '3px',
-  },
-  openBtn: {
-    marginTop: '12px',
-    padding: '8px 16px',
-    background: 'var(--accent)',
-    border: 'none',
-    borderRadius: '8px',
-    color: '#fff',
-    fontSize: '12px',
-    fontWeight: 600,
-    cursor: 'pointer',
-    fontFamily: 'inherit',
-    transition: 'all 0.15s',
-    boxShadow: '0 2px 8px var(--accent-glow)',
-  },
-  noPreview: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: '200px',
-    color: 'var(--txt-3)',
-    fontSize: '13px',
-  },
-  similarityBadge: {
-    fontSize: '11px',
-    color: 'var(--txt-3)',
-    background: 'var(--bg-3)',
-    padding: '2px 8px',
-    borderRadius: '4px',
-    display: 'inline-block',
-  },
+function FileIcon({ ext }) {
+  const colors = { pdf: '#f85149', docx: '#4f8eff', txt: '#3fb950', doc: '#4f8eff' }
+  const color = colors[ext?.toLowerCase()] || 'var(--txt-3)'
+  return (
+    <div style={{
+      width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+      background: `${color}18`, border: `1px solid ${color}30`,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+        <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/>
+      </svg>
+    </div>
+  )
+}
+
+function SimilarityBar({ value }) {
+  const pct = Math.round(value * 100)
+  const color = pct >= 80 ? '#3fb950' : pct >= 50 ? '#d29922' : 'var(--txt-3)'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ flex: 1, height: 3, background: 'var(--bg-3)', borderRadius: 2, overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', background: color, borderRadius: 2, transition: 'width 0.4s' }} />
+      </div>
+      <span style={{ fontSize: 11, color, fontVariantNumeric: 'tabular-nums', minWidth: 28, textAlign: 'right' }}>{pct}%</span>
+    </div>
+  )
 }
 
 export default function CitableAnswer({ answer, sources, sourceChunks }) {
-  const [selectedSource, setSelectedSource] = useState(null)
-  const [chunkContent, setChunkContent] = useState(null)
+  const [selected, setSelected] = useState(null)
+  const [content, setContent] = useState(null)
   const [loading, setLoading] = useState(false)
+  const [expanded, setExpanded] = useState(false)
 
-  // When a source is selected, fetch its chunk content
   useEffect(() => {
-    if (!selectedSource) {
-      setChunkContent(null)
-      return
+    if (!selected) { setContent(null); return }
+    if (sourceChunks?.length) {
+      const m = sourceChunks.find(s => s.filename === selected.filename && s.similarity === selected.similarity)
+      if (m?.content) { setContent(m.content.slice(0, 2000)); return }
     }
-
-    // If we have source chunks with content, use them directly
-    if (sourceChunks && Array.isArray(sourceChunks)) {
-      const match = sourceChunks.find(
-        sc => sc.filename === selectedSource.filename &&
-              sc.similarity === selectedSource.similarity
-      )
-      if (match && match.content) {
-        setChunkContent(match.content.slice(0, 2000))
-        return
-      }
-    }
-
-    // Otherwise fetch from API
     setLoading(true)
-    fetch(`${API}/api/documents/view/${encodeURIComponent(selectedSource.filename)}?chunk_index=${selectedSource.chunk_index}&user_id=0`)
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (data && data.content) {
-          setChunkContent(data.content.slice(0, 2000))
-        } else {
-          setChunkContent('(Содержимое недоступно)')
-        }
-      })
-      .catch(() => setChunkContent('(Ошибка загрузки)'))
+    fetch(`${API}/api/documents/view/${encodeURIComponent(selected.filename)}?chunk_index=${selected.chunk_index}&user_id=0`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => setContent(d?.content?.slice(0, 2000) || '(Содержимое недоступно)'))
+      .catch(() => setContent('(Ошибка загрузки)'))
       .finally(() => setLoading(false))
-  }, [selectedSource, sourceChunks])
+  }, [selected, sourceChunks])
 
-  if (!sources || sources.length === 0) {
-    return (
-      <div style={{ ...styles.answerText, gridColumn: '1 / -1' }}>
-        <p>{answer}</p>
-      </div>
-    )
-  }
-
-  // Create highlighted answer by marking source references
-  const renderHighlightedAnswer = () => {
-    let text = answer || ''
-    return text.split('\n').map((line, i) => (
-      <React.Fragment key={i}>
-        {i > 0 && <br />}
-        {line}
-      </React.Fragment>
+  const renderAnswer = () =>
+    (answer || '').split('\n').map((line, i) => (
+      <React.Fragment key={i}>{i > 0 && <br />}{line}</React.Fragment>
     ))
-  }
 
-  const confLevelLabel = (level) => {
-    const labels = { 0: '📖 Public', 1: '🔐 Internal', 2: '🔒 Confidential', 3: '🛡️ Top Secret' }
-    return labels[level] || '📖 Public'
-  }
+  const visibleSources = expanded ? sources : sources?.slice(0, 4)
 
   return (
     <div>
-      <div style={styles.answerText}>
-        <p>{renderHighlightedAnswer()}</p>
+      {/* Answer text */}
+      <div style={{ fontSize: 14, lineHeight: 1.75, color: 'var(--txt-1)' }}>
+        {renderAnswer()}
       </div>
 
-      <div style={styles.sourcesPanel}>
-        <div style={styles.sourcesTitle}>📚 Источники ({sources.length})</div>
-        {sources.map((source, idx) => (
-          <div
-            key={idx}
-            style={selectedSource?.filename === source.filename &&
-                   selectedSource?.chunk_index === source.chunk_index
-                   ? styles.sourceItemActive : styles.sourceItem}
-            onClick={() => setSelectedSource(source)}
-            onMouseEnter={e => {
-              if (selectedSource?.filename !== source.filename ||
-                  selectedSource?.chunk_index !== source.chunk_index) {
-                e.currentTarget.style.borderColor = 'rgba(79,142,255,0.3)'
-              }
-            }}
-            onMouseLeave={e => {
-              if (selectedSource?.filename !== source.filename ||
-                  selectedSource?.chunk_index !== source.chunk_index) {
-                e.currentTarget.style.borderColor = 'var(--border)'
-              }
-            }}
-          >
-            <div style={styles.sourceFilename}>
-              📄 {source.filename}
-            </div>
-            <div style={styles.sourceMeta}>
-              Чанк {source.chunk_index}
-              <span style={{ marginLeft: '8px' }}>
-                Совпадение {(source.similarity * 100).toFixed(0)}%
-              </span>
-              {source.rerank_score && (
-                <span style={{ marginLeft: '8px' }}>
-                  · Ранк {source.rerank_score}
-                </span>
-              )}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Preview panel */}
-      {selectedSource && (
-        <div style={styles.previewPanel}>
-          <div style={styles.previewHeader}>
-            <span>📄 {selectedSource.filename}</span>
-          </div>
-          <div style={styles.previewMeta}>
-            Чанк {selectedSource.chunk_index} · Совпадение {(selectedSource.similarity * 100).toFixed(0)}%
+      {sources?.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          {/* Sources header */}
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            marginBottom: 8,
+          }}>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--txt-3)', textTransform: 'uppercase', letterSpacing: '0.7px' }}>
+              Источники · {sources.length}
+            </span>
+            {sources.length > 4 && (
+              <button onClick={() => setExpanded(e => !e)} style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                fontSize: 11, color: 'var(--accent)', fontFamily: 'inherit',
+              }}>
+                {expanded ? 'Свернуть' : `Ещё ${sources.length - 4}`}
+              </button>
+            )}
           </div>
 
-          {loading ? (
-            <div style={styles.noPreview}>Загрузка...</div>
-          ) : chunkContent ? (
-            <div style={styles.previewContent}>
-              <mark style={styles.highlight}>
-                {chunkContent}
-              </mark>
-            </div>
-          ) : (
-            <div style={styles.noPreview}>Выберите источник для просмотра</div>
-          )}
+          {/* Source list */}
+          <div style={{
+            background: 'var(--bg-2)', border: '1px solid var(--border)',
+            borderRadius: 12, overflow: 'hidden',
+          }}>
+            {visibleSources.map((src, i) => {
+              const ext = src.filename?.split('.').pop()
+              const isActive = selected?.filename === src.filename && selected?.chunk_index === src.chunk_index
+              return (
+                <div key={i}>
+                  {i > 0 && <div style={{ height: 1, background: 'var(--border)', margin: '0 12px' }} />}
+                  <div
+                    onClick={() => setSelected(isActive ? null : src)}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: 10,
+                      padding: '10px 12px', cursor: 'pointer',
+                      background: isActive ? 'var(--accent-dim)' : 'transparent',
+                      transition: 'background 0.15s',
+                    }}
+                    onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--bg-3)' }}
+                    onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'transparent' }}
+                  >
+                    <FileIcon ext={ext} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{
+                        fontSize: 12, fontWeight: 500, color: 'var(--txt-1)',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      }}>{src.filename}</div>
+                      <div style={{ marginTop: 4 }}>
+                        <SimilarityBar value={src.similarity} />
+                      </div>
+                    </div>
+                    <div style={{
+                      fontSize: 10, color: 'var(--txt-3)', background: 'var(--bg-3)',
+                      padding: '2px 7px', borderRadius: 6, flexShrink: 0,
+                    }}>
+                      #{src.chunk_index}
+                    </div>
+                    <svg
+                      width="14" height="14" viewBox="0 0 24 24" fill="none"
+                      stroke={isActive ? 'var(--accent)' : 'var(--txt-3)'}
+                      strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                      style={{ flexShrink: 0, transform: isActive ? 'rotate(90deg)' : 'none', transition: 'transform 0.2s' }}
+                    >
+                      <path d="M9 18l6-6-6-6"/>
+                    </svg>
+                  </div>
 
-          <button
-            style={styles.openBtn}
-            onClick={() => window.open(`${API}/api/documents/download/${encodeURIComponent(selectedSource.filename)}?user_id=0`, '_blank')}
-            onMouseEnter={e => { e.target.style.background = '#6fa3ff'; e.target.style.transform = 'translateY(-1px)' }}
-            onMouseLeave={e => { e.target.style.background = 'var(--accent)'; e.target.style.transform = 'translateY(0)' }}
-          >
-            🔗 Открыть полный файл
-          </button>
+                  {/* Inline preview */}
+                  {isActive && (
+                    <div style={{
+                      margin: '0 12px 12px', borderRadius: 8,
+                      background: 'var(--bg-3)', border: '1px solid var(--border)',
+                      overflow: 'hidden',
+                    }}>
+                      {loading ? (
+                        <div style={{ padding: '16px', textAlign: 'center', fontSize: 12, color: 'var(--txt-3)' }}>
+                          Загрузка...
+                        </div>
+                      ) : content ? (
+                        <>
+                          <div style={{
+                            padding: '12px 14px', fontSize: 12, lineHeight: 1.65,
+                            color: 'var(--txt-2)', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                            maxHeight: 240, overflowY: 'auto',
+                          }}>
+                            {content}
+                          </div>
+                          <div style={{ borderTop: '1px solid var(--border)', padding: '8px 12px' }}>
+                            <button
+                              onClick={() => window.open(`${API}/api/documents/download/${encodeURIComponent(src.filename)}?user_id=0`, '_blank')}
+                              style={{
+                                display: 'flex', alignItems: 'center', gap: 5,
+                                background: 'none', border: 'none', cursor: 'pointer',
+                                fontSize: 11, color: 'var(--accent)', fontFamily: 'inherit', fontWeight: 500,
+                              }}
+                            >
+                              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6M15 3h6v6M10 14L21 3"/>
+                              </svg>
+                              Открыть файл
+                            </button>
+                          </div>
+                        </>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
         </div>
       )}
     </div>
