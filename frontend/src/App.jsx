@@ -804,7 +804,7 @@ export default function App() {
                   onClick={() => setShowHistory(true)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 6,
-                    padding: '6px 12px', borderRadius: 20, cursor: 'pointer',
+                    padding: '6px 14px', borderRadius: 20, cursor: 'pointer',
                     fontSize: 12, fontFamily: 'inherit', fontWeight: 500,
                     background: 'transparent', border: '1px solid var(--border)',
                     color: 'var(--txt-3)', transition: 'all 0.15s',
@@ -816,22 +816,6 @@ export default function App() {
                     <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
                   </svg>
                   История
-                </button>
-
-                <button
-                  onClick={() => setShowSettings(true)}
-                  style={{
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    width: 32, height: 32, borderRadius: '50%', cursor: 'pointer',
-                    background: 'transparent', border: '1px solid var(--border)',
-                    color: 'var(--txt-3)', transition: 'all 0.15s',
-                  }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--txt-2)'; e.currentTarget.style.color = 'var(--txt-1)' }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--txt-3)' }}
-                >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 010 14.14M4.93 4.93a10 10 0 000 14.14"/>
-                  </svg>
                 </button>
               </div>
             </div>
