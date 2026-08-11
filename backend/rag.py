@@ -507,24 +507,32 @@ class RAGPipeline:
         except Exception:
             return 0.0
 
-    async def _retrieve_overview(self, user_id: int, chunks_per_file: int = 2) -> list[dict]:
+    async def _retrieve_overview(self, user_id: int, chunks_per_file: int = 3) -> list[dict]:
         """Берёт первые N чанков из каждого файла для обзорного ответа."""
         with get_conn() as conn:
             with conn.cursor() as cur:
                 if user_id > 0:
                     cur.execute("""
-                        SELECT DISTINCT ON (filename) filename, chunk_index, content, source_type
-                        FROM document_chunks
-                        WHERE user_id = %s AND embedding IS NOT NULL
+                        SELECT filename, chunk_index, content, source_type
+                        FROM (
+                            SELECT filename, chunk_index, content, source_type,
+                                   ROW_NUMBER() OVER (PARTITION BY filename ORDER BY chunk_index) AS rn
+                            FROM document_chunks
+                            WHERE user_id = %s AND embedding IS NOT NULL
+                        ) t WHERE rn <= %s
                         ORDER BY filename, chunk_index
-                    """, (user_id,))
+                    """, (user_id, chunks_per_file))
                 else:
                     cur.execute("""
-                        SELECT DISTINCT ON (filename) filename, chunk_index, content, source_type
-                        FROM document_chunks
-                        WHERE embedding IS NOT NULL
+                        SELECT filename, chunk_index, content, source_type
+                        FROM (
+                            SELECT filename, chunk_index, content, source_type,
+                                   ROW_NUMBER() OVER (PARTITION BY filename ORDER BY chunk_index) AS rn
+                            FROM document_chunks
+                            WHERE embedding IS NOT NULL
+                        ) t WHERE rn <= %s
                         ORDER BY filename, chunk_index
-                    """)
+                    """, (chunks_per_file,))
                 rows = cur.fetchall()
         return [
             {"filename": r[0], "chunk_index": r[1], "content": r[2],
@@ -578,6 +586,22 @@ class RAGPipeline:
         try:
             if not chunks:
                 answer = await self.generate(query, system=SYSTEM)
+            elif is_overview:
+                # Группируем чанки по файлам и строим специальный промпт
+                by_file: dict[str, list[str]] = {}
+                for c in chunks:
+                    by_file.setdefault(c["filename"], []).append(c["content"])
+                files_text = ""
+                for fname, contents in by_file.items():
+                    combined = " ".join(contents)[:1200]
+                    files_text += f"\n### {fname}\n{combined}\n"
+                overview_prompt = (
+                    f"У пользователя в базе знаний {len(by_file)} файл(ов).\n"
+                    f"Вот фрагменты из каждого файла:\n{files_text}\n"
+                    "Задача: для каждого файла напиши 1-2 предложения — о чём он, какая главная мысль или тема. "
+                    "Оформи как список с названием файла жирным. Не пересказывай дословно — только суть."
+                )
+                answer = await self.generate(overview_prompt, system=SYSTEM)
             else:
                 prompt = self.augment_prompt(query, chunks, all_files=all_files,
                                              total_docs=info["total_documents"],
