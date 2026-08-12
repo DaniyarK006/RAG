@@ -360,7 +360,7 @@ export default function NumericSearch() {
             </>
           ) : (
             <div className="ns-empty">
-              <div className="ns-empty-icon">🔍</div>
+              <div className="ns-empty-icon"></div>
               <div className="ns-empty-title">Введи запрос для поиска</div>
               <div className="ns-empty-hint">Выбери индекс | Введи вопрос | Смотри источники</div>
             </div>
