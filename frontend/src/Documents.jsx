@@ -452,53 +452,44 @@ export default function Documents() {
   // Drive embedding by calling /documents/embed-batch repeatedly.
   // Each call embeds 50 chunks (~1-2s), well within Vercel's 5-min timeout.
   // This replaces BackgroundTasks which get killed on Vercel serverless.
-  const embeddingLoops = useRef(new Set())  // track active loops by filename
+  const embedQueue    = useRef([])   // filenames waiting to be embedded
+  const embedRunning  = useRef(false) // is the queue processor running
 
-  const startEmbeddingLoop = async (filename) => {
-    if (embeddingLoops.current.has(filename)) return  // already looping
-    embeddingLoops.current.add(filename)
-
+  const processEmbedQueue = async () => {
+    if (embedRunning.current) return
+    embedRunning.current = true
     const token = getToken()
-    const loop = async () => {
+
+    while (embedQueue.current.length > 0) {
+      const filename = embedQueue.current[0]
       try {
         const res = await fetch('/documents/embed-batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ filename, token }),
         })
-        if (!res.ok) {
-          embeddingLoops.current.delete(filename)
-          return
-        }
+        if (!res.ok) { embedQueue.current.shift(); continue }
         const data = await res.json()
 
-        // Update indexing progress
-        setIndexing(prev => ({
-          ...prev,
-          [filename]: { total: data.total, done: data.done, status: data.status }
-        }))
+        setIndexing(prev => ({ ...prev, [filename]: { total: data.total, done: data.done, status: data.status } }))
 
         if (data.status === 'done') {
-          embeddingLoops.current.delete(filename)
-          // Remove from indexing state after a short delay
-          setTimeout(() => {
-            setIndexing(prev => {
-              const next = { ...prev }
-              delete next[filename]
-              return next
-            })
-          }, 1500)
-          // Refresh the document list to show updated chunk count
+          embedQueue.current.shift()
+          setTimeout(() => setIndexing(prev => { const n = { ...prev }; delete n[filename]; return n }), 1500)
           refresh()
-        } else {
-          // Continue embedding — call again after 500ms for maximum speed
-          setTimeout(loop, 500)
         }
+        // small pause between batches
+        await new Promise(r => setTimeout(r, 200))
       } catch {
-        embeddingLoops.current.delete(filename)
+        embedQueue.current.shift()
       }
     }
-    loop()
+    embedRunning.current = false
+  }
+
+  const startEmbeddingLoop = (filename) => {
+    if (!embedQueue.current.includes(filename)) embedQueue.current.push(filename)
+    processEmbedQueue()
   }
 
   // On mount: refresh document list, then check if any files are still
