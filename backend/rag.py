@@ -30,6 +30,13 @@ def _get_groq_client() -> AsyncGroq:
     return AsyncGroq(api_key=os.getenv("GROQ_API_KEY", GROQ_API_KEY))
 
 openai_client = _get_openai_client()
+_groq_client_instance: Optional[AsyncGroq] = None
+
+def _get_cached_groq_client() -> AsyncGroq:
+    global _groq_client_instance
+    if _groq_client_instance is None:
+        _groq_client_instance = _get_groq_client()
+    return _groq_client_instance
 
 DB_CONFIG = {
     "host":     os.getenv("PG_HOST",     "127.0.0.1"),
@@ -62,6 +69,7 @@ def init_vector_table():
             cur.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS user_id integer DEFAULT 0;")
             cur.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS source_type text DEFAULT 'text';")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_chunks_user ON document_chunks (user_id);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_chunks_no_emb ON document_chunks (user_id, filename) WHERE embedding IS NULL;")
         conn.commit()
 
 
@@ -300,12 +308,13 @@ class RAGPipeline:
         return split_text(extract_text(filename, content))
 
     async def embed(self, chunks: list[str]) -> list[list[float]]:
-        client = _get_openai_client()
         BATCH = 512
+        batches = [chunks[i:i + BATCH] for i in range(0, len(chunks), BATCH)]
+        responses = await asyncio.gather(*[
+            openai_client.embeddings.create(model=EMBED_MODEL, input=b) for b in batches
+        ])
         results = []
-        for i in range(0, len(chunks), BATCH):
-            batch = chunks[i:i + BATCH]
-            res = await client.embeddings.create(model=EMBED_MODEL, input=batch)
+        for res in responses:
             res.data.sort(key=lambda x: x.index)
             results.extend([d.embedding for d in res.data])
         return results
@@ -313,16 +322,16 @@ class RAGPipeline:
     async def store(self, filename: str, chunks: list[str],
                     embeddings: list[list[float]],
                     user_id: int = 0, source_type: str = "text") -> int:
+        from psycopg2.extras import execute_values
         init_vector_table()
         with get_conn() as conn:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM document_chunks WHERE filename = %s AND user_id = %s", (filename, user_id))
-                for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
-                    cur.execute(
-                        "INSERT INTO document_chunks (user_id, filename, chunk_index, content, embedding, source_type) "
-                        "VALUES (%s, %s, %s, %s, %s, %s)",
-                        (user_id, filename, i, chunk, emb, source_type)
-                    )
+                execute_values(cur,
+                    "INSERT INTO document_chunks (user_id, filename, chunk_index, content, embedding, source_type) VALUES %s",
+                    [(user_id, filename, i, chunk, emb, source_type)
+                     for i, (chunk, emb) in enumerate(zip(chunks, embeddings))]
+                )
             conn.commit()
         return len(chunks)
 
@@ -495,7 +504,7 @@ class RAGPipeline:
         )
 
     async def generate(self, prompt: str, system: str = "") -> str:
-        client = _get_groq_client()
+        client = _get_cached_groq_client()
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
