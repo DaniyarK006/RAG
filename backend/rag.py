@@ -51,17 +51,14 @@ def init_vector_table():
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute("CREATE EXTENSION IF NOT EXISTS vector;")
-            cur.execute(f"""
-                CREATE TABLE IF NOT EXISTS document_chunks (
-                    id          serial PRIMARY KEY,
-                    user_id     integer DEFAULT 0,
-                    filename    text,
-                    chunk_index int,
-                    content     text,
-                    embedding   vector({EMBEDDING_DIM}),
-                    source_type text DEFAULT 'text'
-                );
-            """)
+            create_sql = (
+                "CREATE TABLE IF NOT EXISTS document_chunks ("
+                "id serial PRIMARY KEY, user_id integer DEFAULT 0, "
+                "filename text, chunk_index int, content text, "
+                f"embedding vector({EMBEDDING_DIM}), "
+                "source_type text DEFAULT 'text');"
+            )
+            cur.execute(create_sql)
             cur.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS user_id integer DEFAULT 0;")
             cur.execute("ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS source_type text DEFAULT 'text';")
             cur.execute("CREATE INDEX IF NOT EXISTS idx_chunks_user ON document_chunks (user_id);")
@@ -131,24 +128,36 @@ def extract_text(filename: str, content: bytes) -> str:
     if ext == "pdf":
         try:
             import fitz
-            doc = fitz.open(stream=io.BytesIO(content), filetype="pdf")
-            text = "\n".join(page.get_text() for page in doc)
-            doc.close()
+            buf = io.BytesIO(content)
+            try:
+                doc = fitz.open(stream=buf, filetype="pdf")
+                text = "\n".join(page.get_text() for page in doc)
+                doc.close()
+            finally:
+                buf.close()
             return "".join(c for c in text if c.isprintable() or c in ['\n', '\t', ' '])
         except ImportError:
             pass
         try:
             import pypdf
-            reader = pypdf.PdfReader(io.BytesIO(content))
-            text = "\n".join(page.extract_text() or "" for page in reader.pages)
+            buf = io.BytesIO(content)
+            try:
+                reader = pypdf.PdfReader(buf)
+                text = "\n".join(page.extract_text() or "" for page in reader.pages)
+            finally:
+                buf.close()
             return "".join(c for c in text if c.isprintable() or c in ['\n', '\t', ' '])
         except ImportError:
             pass
     if ext in ("docx", "doc"):
         try:
             import docx
-            doc = docx.Document(io.BytesIO(content))
-            return "\n".join(p.text for p in doc.paragraphs)
+            buf = io.BytesIO(content)
+            try:
+                doc = docx.Document(buf)
+                return "\n".join(p.text for p in doc.paragraphs)
+            finally:
+                buf.close()
         except ImportError:
             pass
     if ext == "xlsx":
@@ -248,7 +257,7 @@ def diverse_retrieve(all_chunks: list[dict], top_k: int) -> list[dict]:
         if fn not in best_per_file or c["similarity"] > best_per_file[fn]["similarity"]:
             best_per_file[fn] = c
     diverse = sorted(best_per_file.values(), key=lambda x: x["similarity"], reverse=True)
-    if len(diverse) < top_k:
+    if len(diverse) < top_k:  # noqa: len-as-condition — intentional size check
         used = {(c["filename"], c["chunk_index"]) for c in diverse}
         for c in all_chunks:
             key = (c["filename"], c["chunk_index"])
@@ -591,9 +600,6 @@ class RAGPipeline:
         except Exception as e:
             logger.error(f"retrieve error: {e}")
             chunks = []
-        except Exception as e:
-            logger.error(f"retrieve error: {e}")
-            chunks = []
 
         try:
             if not chunks and not is_overview:
@@ -707,8 +713,8 @@ def set_indexing_progress(user_id: int, filename: str, total: int, done: int, st
                         updated_at   = now()
                 """, (user_id, filename, total, done, status))
             conn.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"set_indexing_progress error: {e}")
 
 
 def clear_indexing_progress(user_id: int, filename: str):
@@ -721,8 +727,8 @@ def clear_indexing_progress(user_id: int, filename: str):
                     (user_id, filename)
                 )
             conn.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"clear_indexing_progress error: {e}")
 
 
 async def ingest_document(filename: str, content: bytes, user_id: int = 0) -> int:

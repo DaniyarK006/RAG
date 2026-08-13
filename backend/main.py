@@ -344,10 +344,7 @@ async def upload_document(file: UploadFile = File(...), token: str = ""):
         chunks = await loop.run_in_executor(None, pipeline.prepare, file.filename, content)
         chunk_count = await pipeline.store_fast(file.filename, chunks, user_id, source_type)
         update_upload_job(job_id, "done", chunk_count)
-
-        # Mark file as needing embedding (progress persisted in DB)
         set_indexing_progress(user_id, file.filename, chunk_count, 0, "indexing")
-        await pipeline.embed_all(file.filename, user_id)
 
         return {
             "filename": file.filename,
@@ -402,13 +399,12 @@ async def process_uploaded(body: dict):
         chunks = await loop.run_in_executor(None, pipeline.prepare, filename, content)
         chunk_count = await pipeline.store_fast(filename, chunks, user_id, source_type)
         set_indexing_progress(user_id, filename, chunk_count, 0, "indexing")
-        await pipeline.embed_all(filename, user_id)
         return {
             "filename": filename,
             "chunks": chunk_count,
             "source_type": source_type,
             "status": "done",
-            "needs_embedding": False,
+            "needs_embedding": True,
         }
     except Exception as e:
         logger.error(f"Process uploaded error for {filename}: {e}\n{traceback.format_exc()}")
