@@ -267,7 +267,7 @@ function IndexingModal({ open, onClose, target }) {
       >
         <div
           onClick={e => e.stopPropagation()}
-          style={{ width: 420, maxWidth: '90vw', background: 'var(--bg-1, #0d1117)', border: '1px solid var(--border)', borderRadius: 14, padding: 30, textAlign: 'center' }}
+          style={{ width: 420, maxWidth: '90vw', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 14, padding: 30, textAlign: 'center' }}
         >
           <div style={{ color: 'var(--txt-3)', marginBottom: 14 }}>
             <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" style={{ margin: '0 auto' }}>
@@ -295,7 +295,7 @@ function IndexingModal({ open, onClose, target }) {
     >
       <div
         onClick={e => e.stopPropagation()}
-        style={{ width: 640, maxWidth: '92vw', background: 'var(--bg-1, #0d1117)', border: '1px solid var(--border)', borderRadius: 14, padding: 26, boxShadow: '0 20px 60px rgba(0,0,0,0.55)' }}
+        style={{ width: 640, maxWidth: '92vw', background: 'var(--bg-1)', border: '1px solid var(--border)', borderRadius: 14, padding: 26, boxShadow: '0 20px 60px rgba(0,0,0,0.55)' }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -370,7 +370,7 @@ function IndexingModal({ open, onClose, target }) {
           </div>
         </div>
 
-        <div ref={logRef} style={{ background: '#000', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', height: 120, overflowY: 'auto' }}>
+        <div ref={logRef} style={{ background: 'var(--bg-0)', border: '1px solid var(--border)', borderRadius: 8, padding: '10px 14px', height: 120, overflowY: 'auto' }}>
           {logs.map((l, i) => (
             <div key={i} style={{ fontFamily: 'monospace', fontSize: 12, color: 'var(--txt-2)', lineHeight: 1.7, whiteSpace: 'nowrap' }}>{l}</div>
           ))}
