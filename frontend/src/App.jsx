@@ -31,8 +31,8 @@ const DEFAULT_SETTINGS = {
   topK: 5,
   temperature: 0.1,
   chunkSize: 500,
-  model: 'qwen2.5:3b',
-  embedModel: 'nomic-embed-text',
+  model: 'llama-3.1-8b-instant',
+  embedModel: 'text-embedding-3-small',
   theme: 'dark',
   streamMode: false,
 }
@@ -203,15 +203,21 @@ function SettingsPanel({ settings, onChange, onClose }) {
           {/* section: модель */}
           <div style={S.sectionLabel}>Модель</div>
 
-          <SettRow label="LLM модель" hint="Ollama модель для генерации ответов">
+          <SettRow label="LLM модель" hint="Groq — модель для генерации ответов">
             <SettSelect value={local.model} onChange={v => set('model', v)} options={[
-              'qwen2.5:3b', 'qwen2.5:7b', 'qwen2.5-coder:7b', 'llama3.2:3b', 'mistral:7b',
+              'llama-3.1-8b-instant',
+              'llama-3.3-70b-versatile',
+              'llama-3.1-70b-versatile',
+              'mixtral-8x7b-32768',
+              'gemma2-9b-it',
             ]} />
           </SettRow>
 
-          <SettRow label="Embed модель" hint="Модель для векторных эмбеддингов">
+          <SettRow label="Embed модель" hint="OpenAI — модель для векторных эмбеддингов">
             <SettSelect value={local.embedModel} onChange={v => set('embedModel', v)} options={[
-              'bge-m3:latest', 'mxbai-embed-large', 'all-minilm',
+              'text-embedding-3-small',
+              'text-embedding-3-large',
+              'text-embedding-ada-002',
             ]} />
           </SettRow>
 

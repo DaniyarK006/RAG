@@ -134,7 +134,7 @@ function ChunksPanel({ indexed }) {
 }
 
 function VectorPanel({ storeInfo }) {
-  const dim = storeInfo?.embedding_dim || 1024
+  const dim = storeInfo?.embedding_dim || 1536
   const cells = Array.from({ length: 256 }, (_, i) => Math.sin(i * 2.5) * 0.5 + 0.5)
   return (
     <div>
@@ -165,13 +165,14 @@ function VectorPanel({ storeInfo }) {
 
 function ModelPanel({ storeInfo }) {
   const rows = [
-    ['model',         storeInfo?.embed_model || '-'],
-    ['provider',      'OpenAI · cloud'],
-    ['embedding dim', String(storeInfo?.embedding_dim || 1024)],
-    ['chunk size',    '1500 chars'],
-    ['chunk overlap', '200 chars'],
-    ['index type',    'cosine · pgvector'],
-    ['status',        '● online'],
+    ['LLM модель',    'llama-3.1-8b-instant'],
+    ['LLM провайдер', 'Groq · cloud'],
+    ['Embed модель',  storeInfo?.embed_model || 'text-embedding-3-small'],
+    ['Embed провайдер', 'OpenAI · cloud'],
+    ['Embedding dim', String(storeInfo?.embedding_dim || 1536)],
+    ['Chunk size',    '1500 chars'],
+    ['Chunk overlap', '150 chars'],
+    ['Index type',    'cosine · pgvector'],
   ]
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -634,7 +635,7 @@ export default function Documents() {
   const statValues = {
     docs:   indexed.length || storeInfo?.total_documents || 0,
     chunks: totalChunks || storeInfo?.total_chunks || 0,
-    dim:    storeInfo?.embedding_dim || 1024,
+    dim:    storeInfo?.embedding_dim || 1536,
     model:  storeInfo?.embed_model || '-',
   }
 
