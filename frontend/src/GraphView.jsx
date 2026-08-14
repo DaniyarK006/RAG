@@ -290,7 +290,7 @@ export default function GraphView() {
 
       {openDoc && <ChunksModal doc={openDoc} onClose={() => setOpenDoc(null)} />}
 
-      <div style={{ padding: '16px 28px 12px', borderBottom: '1px solid var(--border)', background: 'var(--bg-1)', backdropFilter: 'blur(16px)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
+      <div className="gv-header" style={{ padding: '16px 28px 12px', borderBottom: '1px solid var(--border)', background: 'var(--bg-1)', backdropFilter: 'blur(16px)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <div style={{ width: 40, height: 40, borderRadius: 12, background: 'var(--accent-dim)', border: '1px solid rgba(96,165,250,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -341,8 +341,8 @@ export default function GraphView() {
         .gv-edge-active { animation: gvflow 0.6s linear infinite; }
       `}</style>
 
-      <div style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
-        <div ref={wrapRef} style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
+      <div className="gv-shell" style={{ flex: 1, display: 'flex', overflow: 'hidden' }}>
+          <div ref={wrapRef} className="gv-canvas" style={{ flex: 1, position: 'relative', overflow: 'hidden' }}>
 
           {loading && (
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, color: 'var(--txt-3)' }}>
@@ -479,7 +479,7 @@ export default function GraphView() {
           )}
         </div>
 
-        <div style={{ width: 280, flexShrink: 0, borderLeft: '1px solid var(--border)', background: 'var(--bg-1)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+        <div className="gv-side" style={{ width: 280, flexShrink: 0, borderLeft: '1px solid var(--border)', background: 'var(--bg-1)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           {selected && selectedDoc ? (
             <div style={{ flex: 1, overflow: 'auto', padding: 20, animation: 'gvfadein 0.2s ease', display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>

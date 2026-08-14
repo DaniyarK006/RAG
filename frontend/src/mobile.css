@@ -325,6 +325,37 @@ button, a, [role="button"] {
   *, *::before, *::after { max-width: 100%; box-sizing: border-box; }
   svg { flex-shrink: 0; }
   img { max-width: 100%; height: auto; }
+
+  /* ── GraphView shell: stack canvas above side panel ── */
+  .gv-shell {
+    flex-direction: column !important;
+  }
+  .gv-canvas {
+    flex: 1 1 auto;
+    min-height: 260px;
+  }
+  .gv-side {
+    width: 100% !important;
+    max-height: 32dvh;
+    border-left: none !important;
+    border-top: 1px solid var(--border) !important;
+  }
+
+  /* ── GraphView header: stack title / slider / stats ── */
+  .gv-header {
+    flex-wrap: wrap;
+    padding: 12px 14px 10px !important;
+    gap: 10px !important;
+  }
+  .gv-header > div:first-child {
+    width: 100%;
+  }
+  .gv-header > div:last-child {
+    width: 100%;
+    flex-wrap: wrap;
+    gap: 10px !important;
+    justify-content: space-between;
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════
