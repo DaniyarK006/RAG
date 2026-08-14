@@ -39,11 +39,11 @@ export default function NumericSearch() {
       const params = token ? `&token=${encodeURIComponent(token)}` : ''
       let data
       if (index === 'auto') {
-        const res = await fetch(`${API}/index/query?q=${encodeURIComponent(q)}&index=vector&top_k=5${params}`)
+        const res = await fetch(`${API}/documents/search?q=${encodeURIComponent(q)}&mode=vector&top_k=5${params}`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         data = await res.json()
       } else {
-        const res = await fetch(`${API}/index/query?q=${encodeURIComponent(q)}&index=${index}&top_k=5${params}`)
+        const res = await fetch(`${API}/documents/search?q=${encodeURIComponent(q)}&mode=${index}&top_k=5${params}`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         data = await res.json()
       }
@@ -296,21 +296,7 @@ export default function NumericSearch() {
                           <div className="ns-query-text">{r.query}</div>
                         </div>
 
-                        <div>
-                          <div className="ns-label">ответ ИИ</div>
-                          <div className="ns-answer-box">
-                            <div className="ns-answer-text"
-                              dangerouslySetInnerHTML={{
-                                __html: (r.answer || '')
-                                  .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-                                  .replace(/### (.+)/g, '<h3 style="font-size:13px;font-weight:700;color:var(--txt-1);margin:8px 0 4px">$1</h3>')
-                                  .replace(/## (.+)/g, '<h2 style="font-size:14px;font-weight:700;color:var(--txt-1);margin:10px 0 5px">$1</h2>')
-                                  .replace(/^- (.+)/gm, '<div style="display:flex;gap:6px;margin:2px 0"><span style="color:var(--accent);flex-shrink:0">•</span><span>$1</span></div>')
-                                  .replace(/\n/g, '<br/>')
-                              }}
-                            />
-                          </div>
-                        </div>
+
 
                         {r.sources.length > 0 && (
                           <div className="ns-sources-wrap">
@@ -370,3 +356,7 @@ export default function NumericSearch() {
     </>
   )
 }
+
+
+
+
