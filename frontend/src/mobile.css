@@ -356,6 +356,54 @@ button, a, [role="button"] {
     gap: 10px !important;
     justify-content: space-between;
   }
+  
+  /* ── NumericSearch (Цифровой поиск) — compact mobile layout ── */
+  .ns-top {
+    padding: 12px 14px !important;
+  }
+  .ns-top-row {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+  .ns-logo {
+    gap: 10px;
+  }
+  .ns-logo-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
+  }
+  .ns-logo-title {
+    font-size: 14px;
+  }
+  .ns-logo-sub {
+    font-size: 10px;
+  }
+  .ns-badge-online {
+    font-size: 11px;
+    padding: 5px 10px;
+  }
+
+  .ns-body {
+    padding: 12px 14px !important;
+  }
+
+  .ns-grid {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+  .ns-grid > button {
+    padding: 12px 10px !important;
+    min-height: 64px;
+  }
+  .ns-grid > button > div:first-child {
+    font-size: 12px !important;
+  }
+  .ns-grid > button > div:last-child {
+    font-size: 10px !important;
+    line-height: 1.3;
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════
