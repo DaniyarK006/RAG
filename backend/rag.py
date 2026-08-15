@@ -21,7 +21,7 @@ EMBED_MODEL    = "text-embedding-3-small"  # OpenAI — только для эм
 LLM_MODEL      = "llama-3.1-8b-instant"   # Groq — бесплатно, быстро
 CHUNK_SIZE     = 1500
 CHUNK_OVERLAP  = 150
-EMBEDDING_DIM  = 1536
+EMBEDDING_DIM  = 768
 
 def _get_openai_client() -> AsyncOpenAI:
     return AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY", OPENAI_API_KEY))
@@ -30,6 +30,14 @@ def _get_groq_client() -> AsyncGroq:
     return AsyncGroq(api_key=os.getenv("GROQ_API_KEY", GROQ_API_KEY))
 
 openai_client = _get_openai_client()
+
+from google import genai
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+GEMINI_EMBED_MODEL = "text-embedding-004"
+
+def _get_gemini_client():
+    return genai.Client(api_key=os.getenv("GEMINI_API_KEY", GEMINI_API_KEY))
 _groq_client_instance: Optional[AsyncGroq] = None
 
 def _get_cached_groq_client() -> AsyncGroq:
@@ -235,9 +243,13 @@ async def check_ollama_health() -> tuple[bool, str]:
 
 
 async def get_embedding(text: str) -> list[float]:
-    client = _get_openai_client()
-    res = await client.embeddings.create(model=EMBED_MODEL, input=text)
-    emb = res.data[0].embedding
+    client = _get_gemini_client()
+    res = await asyncio.to_thread(
+        client.models.embed_content,
+        model=GEMINI_EMBED_MODEL,
+        contents=text,
+    )
+    emb = res.embeddings[0].values
     if not emb:
         raise ValueError("Empty embedding returned")
     return emb
@@ -308,15 +320,17 @@ class RAGPipeline:
         return split_text(extract_text(filename, content))
 
     async def embed(self, chunks: list[str]) -> list[list[float]]:
-        BATCH = 512
-        batches = [chunks[i:i + BATCH] for i in range(0, len(chunks), BATCH)]
-        responses = await asyncio.gather(*[
-            openai_client.embeddings.create(model=EMBED_MODEL, input=b) for b in batches
-        ])
+        client = _get_gemini_client()
+        BATCH = 100
         results = []
-        for res in responses:
-            res.data.sort(key=lambda x: x.index)
-            results.extend([d.embedding for d in res.data])
+        for i in range(0, len(chunks), BATCH):
+            batch = chunks[i:i + BATCH]
+            res = await asyncio.to_thread(
+                client.models.embed_content,
+                model=GEMINI_EMBED_MODEL,
+                contents=batch,
+            )
+            results.extend([e.values for e in res.embeddings])
         return results
 
     async def store(self, filename: str, chunks: list[str],
@@ -784,3 +798,7 @@ async def modular_rag(query: str, top_k: int = 5, user_id: int = 0) -> list[dict
             seen.add(key)
             merged.append(r)
     return merged[:top_k]
+
+
+
+

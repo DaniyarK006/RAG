@@ -24,3 +24,4 @@ google-auth-oauthlib>=1.0.0
 vercel_blob
 openai
 groq>=0.9.0
+google-genai
