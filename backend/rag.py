@@ -34,7 +34,7 @@ openai_client = _get_openai_client()
 from google import genai
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_EMBED_MODEL = "text-embedding-004"
+GEMINI_EMBED_MODEL = "gemini-embedding-001"
 
 def _get_gemini_client():
     return genai.Client(api_key=os.getenv("GEMINI_API_KEY", GEMINI_API_KEY))
@@ -243,11 +243,13 @@ async def check_ollama_health() -> tuple[bool, str]:
 
 
 async def get_embedding(text: str) -> list[float]:
+    from google.genai import types
     client = _get_gemini_client()
     res = await asyncio.to_thread(
         client.models.embed_content,
         model=GEMINI_EMBED_MODEL,
         contents=text,
+        config=types.EmbedContentConfig(output_dimensionality=EMBEDDING_DIM),
     )
     emb = res.embeddings[0].values
     if not emb:
@@ -320,6 +322,7 @@ class RAGPipeline:
         return split_text(extract_text(filename, content))
 
     async def embed(self, chunks: list[str]) -> list[list[float]]:
+        from google.genai import types
         client = _get_gemini_client()
         BATCH = 100
         results = []
@@ -329,6 +332,7 @@ class RAGPipeline:
                 client.models.embed_content,
                 model=GEMINI_EMBED_MODEL,
                 contents=batch,
+                config=types.EmbedContentConfig(output_dimensionality=EMBEDDING_DIM),
             )
             results.extend([e.values for e in res.embeddings])
         return results
@@ -798,6 +802,9 @@ async def modular_rag(query: str, top_k: int = 5, user_id: int = 0) -> list[dict
             seen.add(key)
             merged.append(r)
     return merged[:top_k]
+
+
+
 
 
 
