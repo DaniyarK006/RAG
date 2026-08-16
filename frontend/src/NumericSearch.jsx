@@ -164,7 +164,7 @@ export default function NumericSearch() {
         .ns-label { font-size: 9px; font-weight: 700; color: var(--txt-3); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 5px; }
         .ns-query-text { font-size: 13px; color: var(--txt-2); line-height: 1.5; }
 
-        .ns-answer-box { background: var(--accent-dim); border: 1px solid rgba(79, 142, 255, 0.1); border-radius: 10px; padding: 12px 14px; max-height: 300px; overflow-y: auto; }
+        .ns-answer-box { background: var(--accent-dim); border: 1px solid rgba(79, 142, 255, 0.1); border-radius: 10px; padding: 12px 14px; max-height: 600px; overflow-y: auto; }
         .ns-answer-box::-webkit-scrollbar { width: 4px; }
         .ns-answer-box::-webkit-scrollbar-track { background: transparent; }
         .ns-answer-box::-webkit-scrollbar-thumb { background: var(--bg-3); border-radius: 3px; }
@@ -369,6 +369,8 @@ export default function NumericSearch() {
     </>
   )
 }
+
+
 
 
 
