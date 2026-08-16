@@ -323,18 +323,33 @@ class RAGPipeline:
 
     async def embed(self, chunks: list[str]) -> list[list[float]]:
         from google.genai import types
+        from google.genai.errors import ClientError
         client = _get_gemini_client()
-        BATCH = 100
+        BATCH = 20
         results = []
         for i in range(0, len(chunks), BATCH):
             batch = chunks[i:i + BATCH]
-            res = await asyncio.to_thread(
-                client.models.embed_content,
-                model=GEMINI_EMBED_MODEL,
-                contents=batch,
-                config=types.EmbedContentConfig(output_dimensionality=EMBEDDING_DIM),
-            )
-            results.extend([e.values for e in res.embeddings])
+            attempt = 0
+            while True:
+                try:
+                    res = await asyncio.to_thread(
+                        client.models.embed_content,
+                        model=GEMINI_EMBED_MODEL,
+                        contents=batch,
+                        config=types.EmbedContentConfig(output_dimensionality=EMBEDDING_DIM),
+                    )
+                    results.extend([e.values for e in res.embeddings])
+                    break
+                except ClientError as e:
+                    if getattr(e, "code", None) == 429 and attempt < 5:
+                        attempt += 1
+                        wait = min(2 ** attempt, 30)
+                        logger.warning(f"Gemini 429, retry {attempt} in {wait}s")
+                        await asyncio.sleep(wait)
+                        continue
+                    raise
+            if i + BATCH < len(chunks):
+                await asyncio.sleep(1.5)
         return results
 
     async def store(self, filename: str, chunks: list[str],
@@ -802,6 +817,7 @@ async def modular_rag(query: str, top_k: int = 5, user_id: int = 0) -> list[dict
             seen.add(key)
             merged.append(r)
     return merged[:top_k]
+
 
 
 
