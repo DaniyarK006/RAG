@@ -39,11 +39,11 @@ export default function NumericSearch() {
       const params = token ? `&token=${encodeURIComponent(token)}` : ''
       let data
       if (index === 'auto') {
-        const res = await fetch(`${API}/documents/search?q=${encodeURIComponent(q)}&mode=vector&top_k=5${params}`)
+        const res = await fetch(`${API}/index/query?q=${encodeURIComponent(q)}&index=vector&top_k=5${params}`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         data = await res.json()
       } else {
-        const res = await fetch(`${API}/documents/search?q=${encodeURIComponent(q)}&mode=${index}&top_k=5${params}`)
+        const res = await fetch(`${API}/index/query?q=${encodeURIComponent(q)}&index=${index}&top_k=5${params}`)
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
         data = await res.json()
       }
@@ -298,6 +298,19 @@ export default function NumericSearch() {
 
 
 
+                        <div>
+                          <div className="ns-label">Ответ</div>
+                          <div className="ns-answer-box">
+                            <div className="ns-answer-text"
+                              dangerouslySetInnerHTML={{
+                                __html: (r.answer || '')
+                                  .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                                  .replace(/\n/g, '<br/>')
+                              }}
+                            />
+                          </div>
+                        </div>
+
                         {r.sources.length > 0 && (
                           <div className="ns-sources-wrap">
                             <div className="ns-sources-header">
@@ -356,6 +369,7 @@ export default function NumericSearch() {
     </>
   )
 }
+
 
 
 
