@@ -24,11 +24,18 @@ def _all_chunks_balanced(chunks_per_file: int = 3) -> list[dict]:
     return [{"filename": r[0], "chunk_index": r[1], "content": r[2]} for r in rows]
 
 
+MAX_CONTEXT_CHARS = 8000
+
 def _build_prompt(query: str, chunks: list[dict]) -> str:
-    context = "\n\n".join(
-        f"[Файл: {c['filename']} | Чанк: {c['chunk_index']} | Схожесть: {c.get('similarity', 0)}]\n{c['content']}"
-        for c in chunks
-    )
+    parts = []
+    total = 0
+    for c in chunks:
+        piece = f"[Файл: {c['filename']} | Чанк: {c['chunk_index']} | Схожесть: {c.get('similarity', 0)}]\n{c['content'][:1200]}"
+        if total + len(piece) > MAX_CONTEXT_CHARS:
+            break
+        parts.append(piece)
+        total += len(piece)
+    context = "\n\n".join(parts)
     return (
         f"ОТВЕЧАЙ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ. НИ ОДНОГО СЛОВА НА ДРУГОМ ЯЗЫКЕ.\n\n"
         f"Ты — умный ИИ-ассистент. Отвечай на вопрос пользователя РАЗВЁРНУТО и ОСМЫСЛЕННО.\n\n"
@@ -37,7 +44,6 @@ def _build_prompt(query: str, chunks: list[dict]) -> str:
         f"- Формат источников: `📄 НазваниеФайла (схожесть: X%)`\n"
         f"- Анализируй СОДЕРЖИМОЕ документов и давай умный ответ\n"
         f"- Отвечай ТОЛЬКО на русском языке\n"
-        f"ОТВЕЧАЙ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ. НИ ОДНОГО СЛОВА НА ДРУГОМ ЯЗЫКЕ.\n\n"
         f"- Используй Markdown: **жирный**, ## заголовки, - списки\n"
         f"- Если ответа нет в документах — честно скажи: 'В загруженных документах нет информации по этому запросу'\n"
         f"- НИКОГДА не выдумывай информацию которой нет в документах выше\n"
